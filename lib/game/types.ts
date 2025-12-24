@@ -70,6 +70,85 @@ export interface TransitionState {
   startTime: number;
 }
 
+// ========================================
+// INTERACTION SYSTEM
+// ========================================
+
+export type ActionType = 'examine' | 'search' | 'use' | 'open' | 'close' | 'take' | 'unlock';
+
+export interface ActionRequirement {
+  type: 'item' | 'state';
+  itemId?: string;
+  stateKey?: string;
+  stateValue?: boolean;
+}
+
+export interface ActionDefinition {
+  id: ActionType;
+  name: string;
+  available: boolean;
+  requirements?: ActionRequirement[];
+}
+
+export interface InteractiveObject {
+  id: string;
+  name: string;
+  roomId: string;
+  positions: Position[]; // Multi-tile objects have multiple positions
+  actions: ActionType[];
+  defaultAction: ActionType;
+
+  // Text descriptions
+  examineText: string;
+  useText?: string;
+  searchEmptyText?: string;
+  searchFindText?: string;
+  lockedText?: string;
+
+  // Searchable items
+  hiddenItem?: {
+    itemId: string;
+    name: string;
+    description: string;
+  };
+
+  // Requirements
+  unlockRequirement?: string; // Key item ID needed
+}
+
+export interface ObjectState {
+  objectId: string;
+  searched: boolean;
+  itemFound: boolean;
+  open: boolean;
+  locked: boolean;
+  enabled: boolean;
+}
+
+export type UIMode = 'normal' | 'menu' | 'text';
+
+export interface ContextMenu {
+  isOpen: boolean;
+  objectId: string | null;
+  actions: ActionDefinition[];
+  selectedIndex: number;
+  position: Position; // Where to display menu
+}
+
+export interface TextDisplay {
+  isVisible: boolean;
+  text: string;
+  title?: string;
+}
+
+export interface InteractionState {
+  mode: UIMode;
+  targetedObject: InteractiveObject | null;
+  contextMenu: ContextMenu;
+  textDisplay: TextDisplay;
+  objectStates: Record<string, ObjectState>;
+}
+
 export interface GameState {
   player: PlayerState;
   currentRoom: Room;
@@ -77,4 +156,5 @@ export interface GameState {
   input: InputState;
   debugMode: boolean;
   transition: TransitionState;
+  interaction: InteractionState;
 }

@@ -24,6 +24,13 @@ export default function GameCanvas() {
     setInput,
     debugMode,
     updateTransition,
+    updateTargetedObject,
+    openContextMenu,
+    closeContextMenu,
+    navigateMenu,
+    selectMenuAction,
+    dismissText,
+    interaction,
   } = useGameStore();
 
   // Effect to handle canvas size updates when room changes
@@ -54,14 +61,37 @@ export default function GameCanvas() {
     rendererRef.current = new Renderer(canvas);
 
     // Initialize input manager
-    inputManagerRef.current = new InputManager(
-      (direction) => {
+    inputManagerRef.current = new InputManager({
+      onDirectionPress: (direction) => {
         setInput(direction, true);
       },
-      (direction) => {
+      onDirectionRelease: (direction) => {
         setInput(direction, false);
-      }
-    );
+      },
+      onInteract: () => {
+        openContextMenu();
+      },
+      onConfirm: () => {
+        const state = useGameStore.getState();
+        if (state.interaction.mode === 'menu') {
+          selectMenuAction();
+        } else if (state.interaction.mode === 'text') {
+          dismissText();
+        }
+      },
+      onCancel: () => {
+        closeContextMenu();
+      },
+      onMenuUp: () => {
+        navigateMenu('up');
+      },
+      onMenuDown: () => {
+        navigateMenu('down');
+      },
+      getCurrentMode: () => {
+        return useGameStore.getState().interaction.mode;
+      },
+    });
 
     // Add keyboard event listeners
     window.addEventListener('keydown', inputManagerRef.current.handleKeyDown);
@@ -85,6 +115,8 @@ export default function GameCanvas() {
             state.player.targetPixelPosition,
             () => {
               completePlayerMove();
+              // Update targeted object after movement completes
+              updateTargetedObject();
             }
           );
           updatePlayerPixelPosition(newPixelPos);
@@ -98,6 +130,11 @@ export default function GameCanvas() {
             movementControllerRef.current.startMove();
             movementControllerRef.current.recordMove();
           }
+        }
+
+        // Update targeted object based on current position (for non-moving states)
+        if (!state.player.isMoving && !state.transition.isTransitioning) {
+          updateTargetedObject();
         }
       },
       (currentFps) => {
@@ -131,7 +168,7 @@ export default function GameCanvas() {
           Irongate Penitentiary
         </h1>
         <p className="text-sm text-gray-400 text-center mt-2">
-          Use Arrow Keys or WASD to move
+          Use Arrow Keys or WASD to move | Press E to interact
         </p>
       </div>
 
@@ -140,9 +177,14 @@ export default function GameCanvas() {
       </div>
 
       <div className="mt-4 text-gray-400 text-sm text-center">
-        <p>Phase 2: Room System & Transitions</p>
+        <p>Phase 3: Interaction System</p>
         {debugMode && (
           <p className="text-green-400 mt-1">Debug Mode Active</p>
+        )}
+        {interaction.targetedObject && interaction.mode === 'normal' && (
+          <p className="text-yellow-400 mt-1">
+            Press E to interact with {interaction.targetedObject.name}
+          </p>
         )}
       </div>
     </div>

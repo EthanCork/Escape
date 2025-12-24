@@ -1,18 +1,40 @@
 import { create } from 'zustand';
-import type { GameState, Direction, Position, Room } from './types';
+import type { GameState, Direction, Position, Room, InteractiveObject, ActionType, ObjectState } from './types';
 import { cellC14, ROOMS } from './roomData';
 import { TILE_SIZE, isTileWalkable, TRANSITION_DURATION } from './constants';
+import { getObjectsInRoom } from './interactiveObjects';
+import {
+  findClosestObject,
+  getAvailableActions,
+  getDefaultSelectedAction,
+  executeAction,
+  createInitialObjectState,
+  getObjectCenter,
+} from './interactions';
 
 interface GameStore extends GameState {
-  // Actions
+  // Movement actions
   movePlayer: (direction: Direction) => void;
   updatePlayerPixelPosition: (position: Position) => void;
   completePlayerMove: () => void;
   setInput: (direction: Direction, pressed: boolean) => void;
   toggleDebug: () => void;
+
+  // Transition actions
   startTransition: (targetRoomId: string, targetSpawnId: string) => void;
   updateTransition: (currentTime: number) => void;
   changeRoom: (roomId: string, spawnId: string) => void;
+
+  // Interaction actions
+  updateTargetedObject: () => void;
+  openContextMenu: () => void;
+  closeContextMenu: () => void;
+  navigateMenu: (direction: 'up' | 'down') => void;
+  selectMenuAction: () => void;
+  showText: (text: string, title?: string) => void;
+  dismissText: () => void;
+  getObjectState: (objectId: string) => ObjectState;
+  updateObjectState: (objectId: string, changes: Partial<ObjectState>) => void;
 }
 
 // Helper to convert grid position to pixel position
@@ -49,6 +71,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
     targetRoom: null,
     targetSpawn: null,
     startTime: 0,
+  },
+  interaction: {
+    mode: 'normal',
+    targetedObject: null,
+    contextMenu: {
+      isOpen: false,
+      objectId: null,
+      actions: [],
+      selectedIndex: 0,
+      position: { x: 0, y: 0 },
+    },
+    textDisplay: {
+      isVisible: false,
+      text: '',
+    },
+    objectStates: {},
   },
 
   // Actions
@@ -261,6 +299,212 @@ export const useGameStore = create<GameStore>((set, get) => ({
         targetPixelPosition: newPixelPosition,
         direction: spawnPoint.direction,
         isMoving: false,
+      },
+    });
+  },
+
+  // Interaction actions
+  updateTargetedObject: () => {
+    const state = get();
+
+    // Don't update targeted object if menu is open or text is showing
+    if (state.interaction.mode !== 'normal') return;
+
+    const roomObjects = getObjectsInRoom(state.currentRoom.id);
+    const targetedObject = findClosestObject(state.player.gridPosition, roomObjects);
+
+    set({
+      interaction: {
+        ...state.interaction,
+        targetedObject,
+      },
+    });
+  },
+
+  openContextMenu: () => {
+    const state = get();
+
+    // Can only open menu in normal mode
+    if (state.interaction.mode !== 'normal') return;
+
+    const targetedObject = state.interaction.targetedObject;
+    if (!targetedObject) return;
+
+    // Get object state
+    const objectState = get().getObjectState(targetedObject.id);
+
+    // Build available actions
+    const actions = getAvailableActions(targetedObject, objectState);
+    const selectedIndex = getDefaultSelectedAction(actions);
+
+    // Calculate menu position (center of object, converted to pixels)
+    const objectCenter = getObjectCenter(targetedObject);
+    const menuPosition = gridToPixel(objectCenter);
+
+    set({
+      interaction: {
+        ...state.interaction,
+        mode: 'menu',
+        contextMenu: {
+          isOpen: true,
+          objectId: targetedObject.id,
+          actions,
+          selectedIndex,
+          position: menuPosition,
+        },
+      },
+    });
+  },
+
+  closeContextMenu: () => {
+    const state = get();
+
+    set({
+      interaction: {
+        ...state.interaction,
+        mode: 'normal',
+        contextMenu: {
+          isOpen: false,
+          objectId: null,
+          actions: [],
+          selectedIndex: 0,
+          position: { x: 0, y: 0 },
+        },
+      },
+    });
+  },
+
+  navigateMenu: (direction: 'up' | 'down') => {
+    const state = get();
+
+    if (!state.interaction.contextMenu.isOpen) return;
+
+    const actions = state.interaction.contextMenu.actions;
+    const currentIndex = state.interaction.contextMenu.selectedIndex;
+
+    let newIndex = currentIndex;
+    if (direction === 'up') {
+      newIndex = currentIndex > 0 ? currentIndex - 1 : actions.length - 1;
+    } else {
+      newIndex = currentIndex < actions.length - 1 ? currentIndex + 1 : 0;
+    }
+
+    set({
+      interaction: {
+        ...state.interaction,
+        contextMenu: {
+          ...state.interaction.contextMenu,
+          selectedIndex: newIndex,
+        },
+      },
+    });
+  },
+
+  selectMenuAction: () => {
+    const state = get();
+
+    if (!state.interaction.contextMenu.isOpen) return;
+
+    const menu = state.interaction.contextMenu;
+    const selectedAction = menu.actions[menu.selectedIndex];
+
+    if (!selectedAction || !selectedAction.available) {
+      // Show "not available" message if action is unavailable
+      if (selectedAction) {
+        get().showText(`You can't do that right now.`);
+        get().closeContextMenu();
+      }
+      return;
+    }
+
+    // Get the object
+    const targetedObject = state.interaction.targetedObject;
+    if (!targetedObject) return;
+
+    // Get object state
+    const objectState = get().getObjectState(targetedObject.id);
+
+    // Execute the action
+    const result = executeAction(selectedAction.id, targetedObject, objectState);
+
+    // Update object state if needed
+    if (result.stateChanges) {
+      get().updateObjectState(targetedObject.id, result.stateChanges);
+    }
+
+    // Close menu
+    get().closeContextMenu();
+
+    // Show result text
+    get().showText(result.message, targetedObject.name);
+  },
+
+  showText: (text: string, title?: string) => {
+    const state = get();
+
+    set({
+      interaction: {
+        ...state.interaction,
+        mode: 'text',
+        textDisplay: {
+          isVisible: true,
+          text,
+          title,
+        },
+      },
+    });
+  },
+
+  dismissText: () => {
+    const state = get();
+
+    set({
+      interaction: {
+        ...state.interaction,
+        mode: 'normal',
+        textDisplay: {
+          isVisible: false,
+          text: '',
+        },
+      },
+    });
+  },
+
+  getObjectState: (objectId: string): ObjectState => {
+    const state = get();
+
+    if (!state.interaction.objectStates[objectId]) {
+      // Create initial state if it doesn't exist
+      const initialState = createInitialObjectState(objectId);
+      set({
+        interaction: {
+          ...state.interaction,
+          objectStates: {
+            ...state.interaction.objectStates,
+            [objectId]: initialState,
+          },
+        },
+      });
+      return initialState;
+    }
+
+    return state.interaction.objectStates[objectId];
+  },
+
+  updateObjectState: (objectId: string, changes: Partial<ObjectState>) => {
+    const state = get();
+    const currentState = get().getObjectState(objectId);
+
+    set({
+      interaction: {
+        ...state.interaction,
+        objectStates: {
+          ...state.interaction.objectStates,
+          [objectId]: {
+            ...currentState,
+            ...changes,
+          },
+        },
       },
     });
   },
