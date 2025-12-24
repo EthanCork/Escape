@@ -23,13 +23,30 @@ export default function GameCanvas() {
     completePlayerMove,
     setInput,
     debugMode,
+    updateTransition,
   } = useGameStore();
 
+  // Effect to handle canvas size updates when room changes
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     // Set canvas size based on room dimensions
+    canvas.width = currentRoom.width * TILE_SIZE;
+    canvas.height = currentRoom.height * TILE_SIZE;
+
+    // Re-initialize renderer if needed
+    if (!rendererRef.current) {
+      rendererRef.current = new Renderer(canvas);
+    }
+  }, [currentRoom]);
+
+  // Main initialization effect
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Initial canvas setup
     canvas.width = currentRoom.width * TILE_SIZE;
     canvas.height = currentRoom.height * TILE_SIZE;
 
@@ -56,6 +73,11 @@ export default function GameCanvas() {
         // Update logic
         const state = useGameStore.getState();
 
+        // Update room transitions
+        if (state.transition.isTransitioning) {
+          updateTransition(performance.now());
+        }
+
         // Handle movement animation
         if (state.player.isMoving) {
           const newPixelPos = movementControllerRef.current.updatePosition(
@@ -66,8 +88,8 @@ export default function GameCanvas() {
             }
           );
           updatePlayerPixelPosition(newPixelPos);
-        } else {
-          // Check for input and initiate new moves
+        } else if (!state.transition.isTransitioning) {
+          // Check for input and initiate new moves (only if not transitioning)
           const activeDirections = inputManagerRef.current?.getActiveDirections() || [];
           if (activeDirections.length > 0 && movementControllerRef.current.canStartNewMove()) {
             // Take the most recent direction
@@ -118,7 +140,7 @@ export default function GameCanvas() {
       </div>
 
       <div className="mt-4 text-gray-400 text-sm text-center">
-        <p>Phase 1: Movement and Collision</p>
+        <p>Phase 2: Room System & Transitions</p>
         {debugMode && (
           <p className="text-green-400 mt-1">Debug Mode Active</p>
         )}

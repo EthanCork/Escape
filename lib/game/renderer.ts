@@ -17,6 +17,10 @@ export class Renderer {
     this.drawRoom(state);
     this.drawPlayer(state.player.pixelPosition, state.player.direction);
 
+    if (state.transition.isTransitioning) {
+      this.drawTransitionOverlay(state.transition.progress);
+    }
+
     if (state.debugMode) {
       this.drawGrid(state);
       this.drawDebugInfo(state, fps);
@@ -40,7 +44,7 @@ export class Renderer {
         this.ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
 
         // Add slight border for furniture to make it more distinct
-        if (tileType === 'bed' || tileType === 'desk' || tileType === 'toilet' || tileType === 'sink') {
+        if (tileType === 'bed' || tileType === 'desk' || tileType === 'toilet' || tileType === 'sink' || tileType === 'chair' || tileType === 'locker') {
           this.ctx.strokeStyle = '#1a1a1a';
           this.ctx.lineWidth = 1;
           this.ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
@@ -143,14 +147,21 @@ export class Renderer {
 
     const lines = [
       `FPS: ${Math.round(fps)}`,
+      `Room: ${state.currentRoom.name}`,
       `Grid: (${state.player.gridPosition.x}, ${state.player.gridPosition.y})`,
       `Pixel: (${Math.round(state.player.pixelPosition.x)}, ${Math.round(state.player.pixelPosition.y)})`,
       `Moving: ${state.player.isMoving}`,
       `Direction: ${state.player.direction}`,
+      `Transitioning: ${state.transition.isTransitioning}`,
     ];
 
     lines.forEach((line, i) => {
       this.ctx.fillText(line, 10, 20 + i * 15);
     });
+  }
+
+  private drawTransitionOverlay(progress: number) {
+    this.ctx.fillStyle = `rgba(0, 0, 0, ${progress})`;
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
 }

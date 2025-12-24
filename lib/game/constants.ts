@@ -4,6 +4,7 @@ import type { Tile, TileType } from './types';
 export const TILE_SIZE = 32;
 export const MOVE_DURATION = 180; // milliseconds
 export const TARGET_FPS = 60;
+export const TRANSITION_DURATION = 250; // milliseconds for fade in/out
 
 // Color palette (placeholder graphics)
 export const COLORS = {
@@ -24,7 +25,9 @@ export const TILE_DEFINITIONS: Record<TileType, Tile> = {
   desk: { type: 'desk', walkable: false },
   toilet: { type: 'toilet', walkable: false },
   sink: { type: 'sink', walkable: false },
-  door: { type: 'door', walkable: false },
+  door: { type: 'door', walkable: true }, // Doors are now walkable (will trigger transitions)
+  chair: { type: 'chair', walkable: false },
+  locker: { type: 'locker', walkable: false },
 };
 
 // Helper function to check if a tile is walkable
@@ -43,6 +46,8 @@ export const getTileColor = (tileType: TileType): string => {
     case 'desk':
     case 'toilet':
     case 'sink':
+    case 'chair':
+    case 'locker':
       return COLORS.furniture;
     case 'door':
       return COLORS.door;
