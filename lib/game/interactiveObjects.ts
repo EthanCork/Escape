@@ -198,6 +198,35 @@ export const guardStationLocker: InteractiveObject = createObject(
   }
 );
 
+export const guardStationFlashlight: InteractiveObject = createObject(
+  'guard_station_flashlight',
+  'Flashlight',
+  'guard_station_b',
+  [{ x: 2, y: 2 }], // On the desk
+  "A heavy-duty flashlight sitting on the desk. Standard guard issue. The batteries look fresh.",
+  ['examine', 'take'],
+  {
+    hiddenItem: {
+      itemId: 'flashlight',
+      name: 'Flashlight',
+      description: 'A standard-issue guard flashlight.',
+    },
+  }
+);
+
+// ========================================
+// CELL C-14 ADDITIONAL OBJECTS
+// ========================================
+
+export const cellC14VentCover: InteractiveObject = createObject(
+  'cell_c14_vent_cover',
+  'Vent Cover',
+  'cell_c14',
+  [{ x: 4, y: 0 }], // Ceiling vent
+  "A metal vent cover in the ceiling, held in place by four screws. It's been painted over many times, but you can still make out the screw heads.",
+  ['examine']
+);
+
 // ========================================
 // OBJECT REGISTRY
 // ========================================
@@ -209,6 +238,7 @@ export const INTERACTIVE_OBJECTS: Record<string, InteractiveObject> = {
   cell_c14_toilet: cellC14Toilet,
   cell_c14_sink: cellC14Sink,
   cell_c14_door: cellC14Door,
+  cell_c14_vent_cover: cellC14VentCover,
 
   // Corridor
   corridor_cell_c11_door: corridorCellC11Door,
@@ -223,6 +253,7 @@ export const INTERACTIVE_OBJECTS: Record<string, InteractiveObject> = {
   guard_station_desk: guardStationDesk,
   guard_station_chair: guardStationChair,
   guard_station_locker: guardStationLocker,
+  guard_station_flashlight: guardStationFlashlight,
 };
 
 // Helper function to get objects in a specific room

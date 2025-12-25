@@ -209,7 +209,7 @@ Notes:
     stackable: false,
     category: 'tool',
     contrabandLevel: 'medium',
-    usableOn: ['vent_cover', 'electronic_panel', 'furniture_screws'],
+    usableOn: ['cell_c14_vent_cover', 'vent_cover', 'electronic_panel', 'furniture_screws'],
     combinesWith: [],
     consumedOnUse: false,
     canExamine: true,

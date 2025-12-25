@@ -134,9 +134,8 @@ export const isActionAvailable = (
       return object.actions.includes('close') && state.open;
 
     case 'take':
-      // Take is available if object can be taken
-      // For Phase 3, no takeable items yet
-      return false;
+      // Take is available if object can be taken and hasn't been taken yet
+      return object.actions.includes('take') && !state.itemFound;
 
     default:
       return false;
@@ -273,6 +272,16 @@ export const executeAction = (
       };
 
     case 'take':
+      if (object.hiddenItem) {
+        return {
+          success: true,
+          message: `You take the ${object.name.toLowerCase()}.`,
+          stateChanges: {
+            itemFound: true,
+          },
+          itemFound: object.hiddenItem,
+        };
+      }
       return {
         success: false,
         message: "You can't take that.",

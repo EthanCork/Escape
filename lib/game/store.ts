@@ -238,6 +238,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     get().addItemToInventory('sharpened_spoon');
     get().addItemToInventory('book');
     get().addItemToInventory('wire');
+    get().addItemToInventory('screwdriver');
+    get().addItemToInventory('cigarettes');
+    get().addItemToInventory('cigarettes');
+    get().addItemToInventory('cigarettes');
   },
 
   startTransition: (targetRoomId: string, targetSpawnId: string) => {
@@ -349,7 +353,43 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (state.interaction.mode !== 'normal') return;
 
     const roomObjects = getObjectsInRoom(state.currentRoom.id);
-    const targetedObject = findClosestObject(state.player.gridPosition, roomObjects);
+
+    // Check for dropped items at player position first
+    const droppedItems = state.inventory.droppedItems[state.currentRoom.id] || [];
+    const playerPos = state.player.gridPosition;
+
+    // Find dropped item at or adjacent to player
+    const droppedAtPlayer = droppedItems.findIndex(dropped => {
+      const dx = Math.abs(dropped.position.x - playerPos.x);
+      const dy = Math.abs(dropped.position.y - playerPos.y);
+      return dx <= 1 && dy <= 1;
+    });
+
+    // If there's a dropped item nearby, create a temporary interactive object for it
+    let targetedObject: InteractiveObject | null = null;
+
+    if (droppedAtPlayer >= 0) {
+      const droppedItem = droppedItems[droppedAtPlayer];
+      const item = getItem(droppedItem.itemId);
+      if (item) {
+        targetedObject = {
+          id: `__dropped_${droppedAtPlayer}`,
+          name: item.name,
+          roomId: state.currentRoom.id,
+          positions: [droppedItem.position],
+          actions: ['examine', 'take'],
+          defaultAction: 'take',
+          examineText: item.description,
+          hiddenItem: {
+            itemId: item.id,
+            name: item.name,
+            description: item.description,
+          },
+        };
+      }
+    } else {
+      targetedObject = findClosestObject(state.player.gridPosition, roomObjects);
+    }
 
     set({
       interaction: {
@@ -470,7 +510,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
       get().updateObjectState(targetedObject.id, result.stateChanges);
     }
 
-    // Handle item found from search
+    // Handle dropped item pickup
+    if (targetedObject.id.startsWith('__dropped_')) {
+      const droppedIndex = parseInt(targetedObject.id.replace('__dropped_', ''));
+      get().tryPickupDroppedItem(state.currentRoom.id, droppedIndex);
+      get().closeContextMenu();
+      return;
+    }
+
+    // Handle item found from search or take
     if (result.itemFound && !state.inventory.takenItems.has(targetedObject.id)) {
       const success = get().addItemToInventory(result.itemFound.itemId);
 
@@ -485,11 +533,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // Close menu
         get().closeContextMenu();
         // Show success message
-        get().showText(`Found ${result.itemFound.name}! Added to inventory.`, targetedObject.name);
+        const actionVerb = selectedAction.id === 'take' ? 'Picked up' : 'Found';
+        get().showText(`${actionVerb} ${result.itemFound.name}! Added to inventory.`, targetedObject.name);
       } else {
         // Inventory full
         get().closeContextMenu();
-        get().showText(`You found ${result.itemFound.name}, but your inventory is full! Drop something and search again.`, targetedObject.name);
+        const actionVerb = selectedAction.id === 'take' ? 'pick up' : 'take';
+        get().showText(`You found ${result.itemFound.name}, but your inventory is full! Drop something and try to ${actionVerb} it again.`, targetedObject.name);
       }
       return;
     }
@@ -894,14 +944,41 @@ export const useGameStore = create<GameStore>((set, get) => ({
       });
     }
 
-    // Execute the object interaction
-    // TODO: This needs custom logic per object-item combination
-    // For now, just show a success message
+    // Execute the object interaction with custom logic
     const item = getItem(itemId);
     const targetedObject = state.interaction.targetedObject;
 
     if (item && targetedObject) {
-      get().showText(`You used the ${item.name} on the ${targetedObject.name}.`);
+      // Handle specific item-object interactions
+      let message = '';
+      let stateChanges: Partial<ObjectState> = {};
+
+      // Screwdriver + Vent Cover
+      if (itemId === 'screwdriver' && objectId === 'cell_c14_vent_cover') {
+        message = "You carefully remove the four screws. The vent cover comes loose, revealing a dark shaft leading up into the ventilation system. A potential escape route.";
+        stateChanges = { open: true };
+      }
+      // Lockpick + Cell Door
+      else if (itemId === 'lockpick' && objectId.includes('cell_door')) {
+        message = "You work the lockpick into the lock mechanism. After several tense seconds of probing and turning, you hear a satisfying click. The door is unlocked.";
+        stateChanges = { locked: false };
+      }
+      // Lockpick + Locker
+      else if (itemId === 'lockpick' && objectId === 'guard_station_locker') {
+        message = "You insert the lockpick into the padlock. It takes some finesse, but eventually the lock springs open. The locker is now accessible.";
+        stateChanges = { locked: false, open: true };
+      }
+      // Default message
+      else {
+        message = `You used the ${item.name} on the ${targetedObject.name}.`;
+      }
+
+      // Update object state if there are changes
+      if (Object.keys(stateChanges).length > 0) {
+        get().updateObjectState(objectId, stateChanges);
+      }
+
+      get().showText(message);
     }
 
     // Exit use item mode
