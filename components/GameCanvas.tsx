@@ -44,6 +44,11 @@ export default function GameCanvas() {
     cancelCombine,
     dropInventoryItem,
     applyItemToObject,
+    toggleSneak,
+    updateNPCs,
+    navigateDialogueResponses,
+    selectDialogueResponse,
+    dialogue,
   } = useGameStore();
 
   // Function to start game
@@ -137,6 +142,8 @@ export default function GameCanvas() {
           selectMenuAction();
         } else if (state.interaction.mode === 'text') {
           dismissText();
+        } else if (state.interaction.mode === 'dialogue') {
+          selectDialogueResponse(state.dialogue.selectedResponse);
         }
       },
       onCancel: () => {
@@ -151,10 +158,20 @@ export default function GameCanvas() {
         }
       },
       onMenuUp: () => {
-        navigateMenu('up');
+        const state = useGameStore.getState();
+        if (state.interaction.mode === 'dialogue') {
+          navigateDialogueResponses('up');
+        } else {
+          navigateMenu('up');
+        }
       },
       onMenuDown: () => {
-        navigateMenu('down');
+        const state = useGameStore.getState();
+        if (state.interaction.mode === 'dialogue') {
+          navigateDialogueResponses('down');
+        } else {
+          navigateMenu('down');
+        }
       },
       getCurrentMode: () => {
         return useGameStore.getState().interaction.mode;
@@ -195,6 +212,11 @@ export default function GameCanvas() {
         dropInventoryItem(state.inventory.selectedSlot);
       },
 
+      // NPC/dialogue callbacks
+      onSneakToggle: () => {
+        toggleSneak();
+      },
+
       // Debug callback
       onGiveTestItems: () => {
         const state = useGameStore.getState();
@@ -216,6 +238,9 @@ export default function GameCanvas() {
         if (state.transition.isTransitioning) {
           updateTransition(performance.now());
         }
+
+        // Update NPCs (patrol, vision detection, etc.)
+        updateNPCs(deltaTime);
 
         // Handle movement animation
         if (state.player.isMoving) {

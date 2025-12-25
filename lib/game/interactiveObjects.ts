@@ -122,7 +122,14 @@ const createCellDoor = (cellNumber: string, position: Position): InteractiveObje
   );
 
 export const corridorCellC11Door = createCellDoor('C-11', { x: 2, y: 2 });
-export const corridorCellC12Door = createCellDoor('C-12', { x: 5, y: 2 });
+export const corridorCellC12Door: InteractiveObject = createObject(
+  'corridor_cell_c12_door',
+  'Cell C-12 Door',
+  'corridor_b',
+  [{ x: 5, y: 2 }],
+  "Cell C-12. The door stands open. You can hear someone inside.",
+  ['examine']
+);
 export const corridorCellC13Door = createCellDoor('C-13', { x: 8, y: 2 });
 export const corridorCellC14Door: InteractiveObject = createObject(
   'corridor_cell_c14_door',
@@ -140,8 +147,8 @@ export const corridorGuardStationDoor: InteractiveObject = createObject(
   'Guard Station Door',
   'corridor_b',
   [
-    { x: 17, y: 7 },
-    { x: 18, y: 7 },
+    { x: 17, y: 6 },
+    { x: 18, y: 6 },
   ],
   "The entrance to Guard Station B. Through the reinforced glass window, you can see a desk and monitors.",
   ['examine']

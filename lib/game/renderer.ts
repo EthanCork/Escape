@@ -1,6 +1,8 @@
-import type { GameState, Position, InteractiveObject, ContextMenu, TextDisplay, InventorySlot } from './types';
+import type { GameState, Position, InteractiveObject, ContextMenu, TextDisplay, InventorySlot, NPCData, Direction } from './types';
 import { TILE_SIZE, COLORS, getTileColor } from './constants';
 import { getItem } from './items';
+import { getNPCsInRoom } from './npcData';
+import { getDialogueTree } from './dialogueData';
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -19,7 +21,11 @@ export class Renderer {
   render(state: GameState, fps: number) {
     this.clearScreen();
     this.drawRoom(state);
-    this.drawPlayer(state.player.pixelPosition, state.player.direction);
+
+    // Draw NPCs in the current room
+    this.drawNPCs(state);
+
+    this.drawPlayer(state.player.pixelPosition, state.player.direction, state.player.isSneaking);
 
     // Draw dropped items in the room
     this.drawDroppedItems(state);
@@ -41,6 +47,11 @@ export class Renderer {
     // Draw "use item" mode indicator
     if (state.interaction.mode === 'useItem' && state.inventory.useItemId) {
       this.drawUseItemMode(state);
+    }
+
+    // Draw dialogue UI
+    if (state.dialogue.isActive) {
+      this.drawDialogue(state);
     }
 
     if (state.interaction.textDisplay.isVisible) {
@@ -97,7 +108,7 @@ export class Renderer {
     }
   }
 
-  private drawPlayer(pixelPosition: Position, direction: string) {
+  private drawPlayer(pixelPosition: Position, direction: string, isSneaking: boolean = false) {
     const playerSize = TILE_SIZE * 0.7; // Slightly smaller than tile
     const offset = (TILE_SIZE - playerSize) / 2;
 
@@ -105,10 +116,17 @@ export class Renderer {
     const y = pixelPosition.y + offset;
 
     // Draw player circle
-    this.ctx.fillStyle = COLORS.player;
+    this.ctx.fillStyle = isSneaking ? '#4a7c4a' : COLORS.player; // Darker green when sneaking
     this.ctx.beginPath();
     this.ctx.arc(x + playerSize / 2, y + playerSize / 2, playerSize / 2, 0, Math.PI * 2);
     this.ctx.fill();
+
+    // Add sneaking indicator (border)
+    if (isSneaking) {
+      this.ctx.strokeStyle = '#2a4c2a';
+      this.ctx.lineWidth = 2;
+      this.ctx.stroke();
+    }
 
     // Draw direction indicator (small triangle)
     this.ctx.fillStyle = '#ffffff';
@@ -558,5 +576,159 @@ export class Renderer {
       truncated = truncated.slice(0, -1);
     }
     return truncated + '...';
+  }
+
+  // ========================================
+  // NPC RENDERING
+  // ========================================
+
+  private drawNPCs(state: GameState) {
+    // Get NPCs in current room
+    const npcsInRoom = Object.values(state.npcs).filter(
+      (npc) => npc.currentRoom === state.currentRoom.id
+    );
+
+    npcsInRoom.forEach((npc) => {
+      this.drawNPC(npc);
+    });
+  }
+
+  private drawNPC(npc: NPCData) {
+    const npcSize = TILE_SIZE * 0.7;
+    const offset = (TILE_SIZE - npcSize) / 2;
+
+    const x = npc.pixelPosition.x + offset;
+    const y = npc.pixelPosition.y + offset;
+
+    // Different colors for different NPC types
+    let color = '#888888';
+    if (npc.type === 'guard') {
+      color = '#cc3333'; // Red for guards
+    } else if (npc.type === 'inmate') {
+      color = '#ff8833'; // Orange for inmates
+    } else if (npc.type === 'staff') {
+      color = '#33cc66'; // Green for staff
+    }
+
+    // Draw NPC circle
+    this.ctx.fillStyle = color;
+    this.ctx.beginPath();
+    this.ctx.arc(x + npcSize / 2, y + npcSize / 2, npcSize / 2, 0, Math.PI * 2);
+    this.ctx.fill();
+
+    // Draw direction indicator
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.beginPath();
+
+    const centerX = x + npcSize / 2;
+    const centerY = y + npcSize / 2;
+    const indicatorSize = 6;
+
+    switch (npc.direction) {
+      case 'up':
+        this.ctx.moveTo(centerX, centerY - indicatorSize);
+        this.ctx.lineTo(centerX - indicatorSize / 2, centerY);
+        this.ctx.lineTo(centerX + indicatorSize / 2, centerY);
+        break;
+      case 'down':
+        this.ctx.moveTo(centerX, centerY + indicatorSize);
+        this.ctx.lineTo(centerX - indicatorSize / 2, centerY);
+        this.ctx.lineTo(centerX + indicatorSize / 2, centerY);
+        break;
+      case 'left':
+        this.ctx.moveTo(centerX - indicatorSize, centerY);
+        this.ctx.lineTo(centerX, centerY - indicatorSize / 2);
+        this.ctx.lineTo(centerX, centerY + indicatorSize / 2);
+        break;
+      case 'right':
+        this.ctx.moveTo(centerX + indicatorSize, centerY);
+        this.ctx.lineTo(centerX, centerY - indicatorSize / 2);
+        this.ctx.lineTo(centerX, centerY + indicatorSize / 2);
+        break;
+    }
+
+    this.ctx.closePath();
+    this.ctx.fill();
+
+    // Draw name label above NPC
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.font = '10px monospace';
+    this.ctx.textAlign = 'center';
+    this.ctx.fillText(npc.name, centerX, y - 5);
+  }
+
+  // ========================================
+  // DIALOGUE RENDERING
+  // ========================================
+
+  private drawDialogue(state: GameState) {
+    if (!state.dialogue.currentTree || !state.dialogue.currentNode) return;
+
+    const tree = getDialogueTree(state.dialogue.currentTree);
+    if (!tree) return;
+
+    const node = tree.nodes[state.dialogue.currentNode];
+    if (!node) return;
+
+    // Draw semi-transparent overlay
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // Dialogue box dimensions
+    const boxWidth = 600;
+    const boxHeight = 300;
+    const boxX = (this.canvas.width - boxWidth) / 2;
+    const boxY = this.canvas.height - boxHeight - 40;
+
+    // Draw dialogue box background
+    this.ctx.fillStyle = '#2a2a2a';
+    this.ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+
+    // Draw border
+    this.ctx.strokeStyle = '#666666';
+    this.ctx.lineWidth = 2;
+    this.ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+
+    // Draw speaker name
+    this.ctx.fillStyle = '#ffcc00';
+    this.ctx.font = 'bold 16px monospace';
+    this.ctx.textAlign = 'left';
+    this.ctx.fillText(node.speaker, boxX + 20, boxY + 30);
+
+    // Draw dialogue text
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.font = '14px monospace';
+    const textLines = this.wrapText(node.text, boxWidth - 40);
+    textLines.forEach((line, i) => {
+      this.ctx.fillText(line, boxX + 20, boxY + 60 + i * 20);
+    });
+
+    // Draw response options
+    const responsesY = boxY + 140;
+    node.responses.forEach((response, i) => {
+      const isSelected = i === state.dialogue.selectedResponse;
+      const optionY = responsesY + i * 30;
+
+      // Draw selection indicator
+      if (isSelected) {
+        this.ctx.fillStyle = '#444444';
+        this.ctx.fillRect(boxX + 10, optionY - 18, boxWidth - 20, 25);
+      }
+
+      // Draw response number and text
+      this.ctx.fillStyle = isSelected ? '#ffcc00' : '#cccccc';
+      this.ctx.font = '14px monospace';
+      this.ctx.fillText(`${i + 1}. ${response.text}`, boxX + 20, optionY);
+    });
+
+    // Draw instruction at bottom
+    this.ctx.fillStyle = '#888888';
+    this.ctx.font = '12px monospace';
+    this.ctx.textAlign = 'center';
+    this.ctx.fillText(
+      'Arrow Keys to navigate • E/Enter to select',
+      boxX + boxWidth / 2,
+      boxY + boxHeight - 15
+    );
   }
 }

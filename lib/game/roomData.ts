@@ -55,18 +55,72 @@ export const cellC14: Room = {
 };
 
 // ========================================
+// CELL C-12 (Old Timer's Cell)
+// ========================================
+
+const cellC12Layout: TileType[][] = [
+  ['wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall'],
+  ['wall', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'wall'],
+  ['wall', 'bed', 'bed', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'wall'],
+  ['wall', 'bed', 'bed', 'floor', 'floor', 'floor', 'floor', 'toilet', 'floor', 'wall'],
+  ['wall', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'wall'],
+  ['wall', 'desk', 'desk', 'floor', 'floor', 'floor', 'floor', 'sink', 'floor', 'wall'],
+  ['wall', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'wall'],
+  ['wall', 'wall', 'wall', 'wall', 'door', 'door', 'wall', 'wall', 'wall', 'wall'],
+];
+
+export const cellC12: Room = {
+  id: 'cell_c12',
+  name: 'Cell C-12',
+  width: 10,
+  height: 8,
+  tiles: cellC12Layout,
+  startPosition: { x: 4, y: 4 },
+  exits: [
+    {
+      id: 'cell_door_left',
+      position: { x: 4, y: 7 },
+      targetRoom: 'corridor_b',
+      targetSpawn: 'from_cell_c12',
+      type: 'door',
+      state: 'open',
+    },
+    {
+      id: 'cell_door_right',
+      position: { x: 5, y: 7 },
+      targetRoom: 'corridor_b',
+      targetSpawn: 'from_cell_c12',
+      type: 'door',
+      state: 'open',
+    },
+  ],
+  spawnPoints: [
+    {
+      id: 'default',
+      position: { x: 4, y: 4 },
+      direction: 'down',
+    },
+    {
+      id: 'from_corridor',
+      position: { x: 4, y: 6 },
+      direction: 'up',
+    },
+  ],
+};
+
+// ========================================
 // CORRIDOR (Cell Block B)
 // ========================================
 
 const corridorLayout: TileType[][] = [
   ['wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall'],
   ['wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall'],
-  ['wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'door', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall'],
+  ['wall', 'wall', 'wall', 'wall', 'wall', 'door', 'wall', 'wall', 'wall', 'wall', 'wall', 'door', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall'],
   ['wall', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'wall'],
   ['wall', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'wall'],
   ['wall', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'floor', 'wall'],
-  ['wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall'],
   ['wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'door', 'door', 'wall'],
+  ['wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall', 'wall'],
 ];
 
 export const corridor: Room = {
@@ -78,6 +132,14 @@ export const corridor: Room = {
   startPosition: { x: 11, y: 3 },
   exits: [
     {
+      id: 'cell_c12_door',
+      position: { x: 5, y: 2 },
+      targetRoom: 'cell_c12',
+      targetSpawn: 'from_corridor',
+      type: 'door',
+      state: 'open',
+    },
+    {
       id: 'cell_c14_door',
       position: { x: 11, y: 2 },
       targetRoom: 'cell_c14',
@@ -87,7 +149,7 @@ export const corridor: Room = {
     },
     {
       id: 'guard_station_door_left',
-      position: { x: 17, y: 7 },
+      position: { x: 17, y: 6 },
       targetRoom: 'guard_station_b',
       targetSpawn: 'from_corridor',
       type: 'door',
@@ -95,7 +157,7 @@ export const corridor: Room = {
     },
     {
       id: 'guard_station_door_right',
-      position: { x: 18, y: 7 },
+      position: { x: 18, y: 6 },
       targetRoom: 'guard_station_b',
       targetSpawn: 'from_corridor',
       type: 'door',
@@ -104,13 +166,18 @@ export const corridor: Room = {
   ],
   spawnPoints: [
     {
+      id: 'from_cell_c12',
+      position: { x: 5, y: 3 },
+      direction: 'down',
+    },
+    {
       id: 'from_cell_c14',
       position: { x: 11, y: 3 },
       direction: 'down',
     },
     {
       id: 'from_guard_station',
-      position: { x: 17, y: 6 },
+      position: { x: 17, y: 5 },
       direction: 'up',
     },
   ],
@@ -172,6 +239,7 @@ export const guardStation: Room = {
 // ========================================
 
 export const ROOMS: Record<string, Room> = {
+  cell_c12: cellC12,
   cell_c14: cellC14,
   corridor_b: corridor,
   guard_station_b: guardStation,

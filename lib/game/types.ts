@@ -50,6 +50,10 @@ export interface PlayerState {
   targetPixelPosition: Position;
   direction: Direction;
   isMoving: boolean;
+  isSneaking: boolean;
+  isHiding: boolean;
+  hidingSpot: string | null;
+  caughtCount: number;
 }
 
 export interface InputState {
@@ -125,7 +129,7 @@ export interface ObjectState {
   enabled: boolean;
 }
 
-export type UIMode = 'normal' | 'menu' | 'text' | 'inventory' | 'useItem' | 'combine';
+export type UIMode = 'normal' | 'menu' | 'text' | 'inventory' | 'useItem' | 'combine' | 'dialogue';
 
 export interface ContextMenu {
   isOpen: boolean;
@@ -183,6 +187,113 @@ export interface InventoryState {
   takenItems: Set<string>; // Set of object IDs that had items taken
 }
 
+// ========================================
+// NPC SYSTEM - Phase 5
+// ========================================
+
+export type NPCType = 'guard' | 'inmate' | 'staff';
+export type NPCBehavior = 'idle' | 'patrol' | 'alert' | 'chase' | 'conversation';
+
+export interface PatrolPoint {
+  room: string;
+  col: number;
+  row: number;
+  wait: number; // seconds to wait at this point
+  direction?: Direction; // direction to face while waiting
+}
+
+export interface NPCScheduleEntry {
+  behavior: NPCBehavior;
+  room?: string;
+  patrolRoute?: string; // ID of patrol route to use
+}
+
+export interface NPCData {
+  id: string;
+  name: string;
+  type: NPCType;
+  sprite: string;
+
+  // Position
+  currentRoom: string;
+  position: Position;
+  direction: Direction;
+
+  // Movement
+  patrolRoute: PatrolPoint[];
+  currentPatrolIndex: number;
+  movementSpeed: number; // tiles per second
+  isMoving: boolean;
+  targetPosition: Position | null;
+  pixelPosition: Position; // For smooth movement
+  targetPixelPosition: Position;
+
+  // Behavior
+  schedule: Record<string, NPCScheduleEntry>; // time range -> behavior
+  currentBehavior: NPCBehavior;
+  alertness: number; // 0-100
+
+  // Vision (for guards)
+  visionRange: number; // tiles
+  visionAngle: number; // degrees
+
+  // Dialogue
+  dialogueTree: string | null;
+  relationshipLevel: number; // -100 to 100
+  talkedTo: boolean;
+
+  // State
+  isConscious: boolean;
+  isAlive: boolean;
+  flags: Record<string, boolean>;
+}
+
+export interface AlertState {
+  prisonLevel: number; // 0-4
+  lastIncidentTime: number | null;
+  searchingFor: string | null;
+  lockdownActive: boolean;
+}
+
+// Dialogue System
+export interface DialogueEffect {
+  type: 'knowledge' | 'relationship' | 'flag' | 'item' | 'event';
+  value?: string | number;
+  itemId?: string;
+  flagName?: string;
+}
+
+export interface DialogueResponse {
+  text: string;
+  nextNode: string | null; // null = end dialogue
+  conditions?: Record<string, boolean>; // flag conditions
+  effects?: DialogueEffect[];
+}
+
+export interface DialogueNode {
+  id: string;
+  speaker: string;
+  text: string;
+  responses: DialogueResponse[];
+  conditions?: Record<string, boolean>;
+  effects?: DialogueEffect[];
+  isEnd?: boolean;
+}
+
+export interface DialogueTree {
+  id: string;
+  startNode: string;
+  nodes: Record<string, DialogueNode>;
+}
+
+export interface DialogueState {
+  isActive: boolean;
+  currentTree: string | null;
+  currentNode: string | null;
+  npcId: string | null;
+  selectedResponse: number;
+}
+
 export interface GameState {
   player: PlayerState;
   currentRoom: Room;
@@ -192,4 +303,8 @@ export interface GameState {
   transition: TransitionState;
   interaction: InteractionState;
   inventory: InventoryState;
+  npcs: Record<string, NPCData>;
+  alertState: AlertState;
+  dialogue: DialogueState;
+  playerKnowledge: Set<string>; // Knowledge gained from dialogue
 }

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GameState, Direction, Position, Room, InteractiveObject, ActionType, ObjectState } from './types';
+import type { GameState, Direction, Position, Room, InteractiveObject, ActionType, ObjectState, NPCData, DialogueNode } from './types';
 import { cellC14, ROOMS } from './roomData';
 import { TILE_SIZE, isTileWalkable, TRANSITION_DURATION } from './constants';
 import { getObjectsInRoom } from './interactiveObjects';
@@ -23,6 +23,9 @@ import {
   hasRoomForItem,
 } from './inventory';
 import { getItem } from './items';
+import { NPCS, getNPCAdjacentToPosition } from './npcData';
+import { getDialogueTree } from './dialogueData';
+import { updatePatrol, isPlayerInVisionCone, calculateDetectionLevel, canTalkToNPC, shouldReactToPlayer } from './npcSystems';
 
 interface GameStore extends GameState {
   // Movement actions
@@ -32,6 +35,7 @@ interface GameStore extends GameState {
   setInput: (direction: Direction, pressed: boolean) => void;
   toggleDebug: () => void;
   giveTestItems: () => void;
+  toggleSneak: () => void;
 
   // Transition actions
   startTransition: (targetRoomId: string, targetSpawnId: string) => void;
@@ -63,6 +67,16 @@ interface GameStore extends GameState {
   addItemToInventory: (itemId: string) => boolean;
   tryPickupDroppedItem: (roomId: string, itemIndex: number) => void;
   applyItemToObject: (itemId: string, objectId: string) => void;
+
+  // NPC actions
+  updateNPCs: (deltaTime: number) => void;
+  updateNPC: (npcId: string, changes: Partial<NPCData>) => void;
+
+  // Dialogue actions
+  startDialogue: (npcId: string) => void;
+  selectDialogueResponse: (responseIndex: number) => void;
+  navigateDialogueResponses: (direction: 'up' | 'down') => void;
+  closeDialogue: () => void;
 }
 
 // Helper to convert grid position to pixel position
@@ -82,6 +96,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     targetPixelPosition: gridToPixel(initialPlayerPosition),
     direction: 'down',
     isMoving: false,
+    isSneaking: false,
+    isHiding: false,
+    hidingSpot: null,
+    caughtCount: 0,
   },
   currentRoom: cellC14,
   previousRoom: null,
@@ -117,6 +135,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
     objectStates: {},
   },
   inventory: createInitialInventory(),
+  npcs: { ...NPCS },
+  alertState: {
+    prisonLevel: 0,
+    lastIncidentTime: null,
+    searchingFor: null,
+    lockdownActive: false,
+  },
+  dialogue: {
+    isActive: false,
+    currentTree: null,
+    currentNode: null,
+    npcId: null,
+    selectedResponse: 0,
+  },
+  playerKnowledge: new Set<string>(),
 
   // Actions
   movePlayer: (direction: Direction) => {
@@ -354,9 +387,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const roomObjects = getObjectsInRoom(state.currentRoom.id);
 
-    // Check for dropped items at player position first
-    const droppedItems = state.inventory.droppedItems[state.currentRoom.id] || [];
+    // Check for NPCs adjacent to player first (highest priority)
     const playerPos = state.player.gridPosition;
+    const adjacentNPC = getNPCAdjacentToPosition(state.currentRoom.id, playerPos);
+
+    // Check for dropped items at player position
+    const droppedItems = state.inventory.droppedItems[state.currentRoom.id] || [];
 
     // Find dropped item at or adjacent to player
     const droppedAtPlayer = droppedItems.findIndex(dropped => {
@@ -365,10 +401,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return dx <= 1 && dy <= 1;
     });
 
-    // If there's a dropped item nearby, create a temporary interactive object for it
+    // Priority: NPCs > Dropped items > Objects
     let targetedObject: InteractiveObject | null = null;
 
-    if (droppedAtPlayer >= 0) {
+    if (adjacentNPC && canTalkToNPC(adjacentNPC, playerPos)) {
+      // Create a temporary interactive object for the NPC
+      targetedObject = {
+        id: `__npc_${adjacentNPC.id}`,
+        name: adjacentNPC.name,
+        roomId: state.currentRoom.id,
+        positions: [adjacentNPC.position],
+        actions: ['examine'],
+        defaultAction: 'examine',
+        examineText: `${adjacentNPC.name} is here. You could talk to them.`,
+      };
+    } else if (droppedAtPlayer >= 0) {
       const droppedItem = droppedItems[droppedAtPlayer];
       const item = getItem(droppedItem.itemId);
       if (item) {
@@ -407,6 +454,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const targetedObject = state.interaction.targetedObject;
     if (!targetedObject) return;
+
+    // Check if this is an NPC - if so, start dialogue instead of menu
+    if (targetedObject.id.startsWith('__npc_')) {
+      const npcId = targetedObject.id.replace('__npc_', '');
+      get().startDialogue(npcId);
+      return;
+    }
 
     // Get object state
     const objectState = get().getObjectState(targetedObject.id);
@@ -990,6 +1044,244 @@ export const useGameStore = create<GameStore>((set, get) => ({
       inventory: {
         ...state.inventory,
         useItemId: null,
+      },
+    });
+  },
+
+  // NPC actions
+  updateNPCs: (deltaTime: number) => {
+    const state = get();
+    const updatedNPCs: Record<string, NPCData> = { ...state.npcs };
+
+    Object.keys(updatedNPCs).forEach((npcId) => {
+      const npc = updatedNPCs[npcId];
+
+      // Only update NPCs in current room
+      if (npc.currentRoom !== state.currentRoom.id) return;
+
+      // Update patrol
+      if (npc.currentBehavior === 'patrol') {
+        const updates = updatePatrol(npc, deltaTime, state.currentRoom);
+        if (Object.keys(updates).length > 0) {
+          updatedNPCs[npcId] = { ...npc, ...updates };
+        }
+      }
+
+      // Check vision for guards
+      if (npc.type === 'guard' && !state.player.isHiding) {
+        const detectionLevel = calculateDetectionLevel(
+          npc,
+          state.player.gridPosition,
+          state.player.isSneaking,
+          state.currentRoom
+        );
+
+        if (shouldReactToPlayer(npc, detectionLevel)) {
+          // Guard detected player - start confrontation
+          console.log(`${npc.name} detected player!`);
+          // For now, just show a message (will implement full confrontation later)
+          if (npc.dialogueTree) {
+            get().startDialogue(npcId);
+          }
+        }
+      }
+    });
+
+    set({ npcs: updatedNPCs });
+  },
+
+  updateNPC: (npcId: string, changes: Partial<NPCData>) => {
+    const state = get();
+    const npc = state.npcs[npcId];
+    if (!npc) return;
+
+    set({
+      npcs: {
+        ...state.npcs,
+        [npcId]: {
+          ...npc,
+          ...changes,
+        },
+      },
+    });
+  },
+
+  toggleSneak: () => {
+    const state = get();
+    set({
+      player: {
+        ...state.player,
+        isSneaking: !state.player.isSneaking,
+      },
+    });
+  },
+
+  // Dialogue actions
+  startDialogue: (npcId: string) => {
+    const state = get();
+    const npc = state.npcs[npcId];
+
+    if (!npc || !npc.dialogueTree) return;
+
+    // Check if NPC can be talked to
+    if (!canTalkToNPC(npc, state.player.gridPosition)) {
+      get().showText("You're too far away to talk.");
+      return;
+    }
+
+    const tree = getDialogueTree(npc.dialogueTree);
+    if (!tree) return;
+
+    // Determine start node based on whether player has talked to NPC before
+    let startNodeId = tree.startNode;
+    if (npc.talkedTo && tree.nodes['greeting_return']) {
+      startNodeId = 'greeting_return';
+    }
+
+    const startNode = tree.nodes[startNodeId];
+    if (!startNode) return;
+
+    // Mark NPC as talked to
+    get().updateNPC(npcId, { talkedTo: true });
+
+    // Start dialogue
+    set({
+      dialogue: {
+        isActive: true,
+        currentTree: tree.id,
+        currentNode: startNodeId,
+        npcId,
+        selectedResponse: 0,
+      },
+      interaction: {
+        ...state.interaction,
+        mode: 'dialogue',
+      },
+    });
+  },
+
+  navigateDialogueResponses: (direction: 'up' | 'down') => {
+    const state = get();
+    if (!state.dialogue.isActive || !state.dialogue.currentNode) return;
+
+    const tree = state.dialogue.currentTree ? getDialogueTree(state.dialogue.currentTree) : null;
+    if (!tree) return;
+
+    const node = tree.nodes[state.dialogue.currentNode];
+    if (!node) return;
+
+    const numResponses = node.responses.length;
+    let newIndex = state.dialogue.selectedResponse;
+
+    if (direction === 'up') {
+      newIndex = newIndex > 0 ? newIndex - 1 : numResponses - 1;
+    } else {
+      newIndex = newIndex < numResponses - 1 ? newIndex + 1 : 0;
+    }
+
+    set({
+      dialogue: {
+        ...state.dialogue,
+        selectedResponse: newIndex,
+      },
+    });
+  },
+
+  selectDialogueResponse: (responseIndex: number) => {
+    const state = get();
+    if (!state.dialogue.isActive || !state.dialogue.currentNode) return;
+
+    const tree = state.dialogue.currentTree ? getDialogueTree(state.dialogue.currentTree) : null;
+    if (!tree) return;
+
+    const node = tree.nodes[state.dialogue.currentNode];
+    if (!node) return;
+
+    const response = node.responses[responseIndex];
+    if (!response) return;
+
+    // Apply node effects
+    if (node.effects) {
+      node.effects.forEach((effect) => {
+        if (effect.type === 'knowledge' && effect.value) {
+          const newKnowledge = new Set(state.playerKnowledge);
+          newKnowledge.add(effect.value as string);
+          set({ playerKnowledge: newKnowledge });
+        } else if (effect.type === 'relationship' && state.dialogue.npcId) {
+          const npc = state.npcs[state.dialogue.npcId];
+          if (npc) {
+            get().updateNPC(state.dialogue.npcId, {
+              relationshipLevel: npc.relationshipLevel + (effect.value as number),
+            });
+          }
+        } else if (effect.type === 'flag' && effect.flagName && state.dialogue.npcId) {
+          const npc = state.npcs[state.dialogue.npcId];
+          if (npc) {
+            get().updateNPC(state.dialogue.npcId, {
+              flags: { ...npc.flags, [effect.flagName]: true },
+            });
+          }
+        }
+      });
+    }
+
+    // Apply response effects
+    if (response.effects) {
+      response.effects.forEach((effect) => {
+        if (effect.type === 'knowledge' && effect.value) {
+          const newKnowledge = new Set(state.playerKnowledge);
+          newKnowledge.add(effect.value as string);
+          set({ playerKnowledge: newKnowledge });
+        } else if (effect.type === 'relationship' && state.dialogue.npcId) {
+          const npc = state.npcs[state.dialogue.npcId];
+          if (npc) {
+            get().updateNPC(state.dialogue.npcId, {
+              relationshipLevel: npc.relationshipLevel + (effect.value as number),
+            });
+          }
+        } else if (effect.type === 'flag' && effect.flagName && state.dialogue.npcId) {
+          const npc = state.npcs[state.dialogue.npcId];
+          if (npc) {
+            get().updateNPC(state.dialogue.npcId, {
+              flags: { ...npc.flags, [effect.flagName]: true },
+            });
+          }
+        }
+      });
+    }
+
+    // Move to next node or end dialogue
+    if (response.nextNode) {
+      const nextNode = tree.nodes[response.nextNode];
+      if (nextNode) {
+        set({
+          dialogue: {
+            ...state.dialogue,
+            currentNode: response.nextNode,
+            selectedResponse: 0,
+          },
+        });
+      } else {
+        get().closeDialogue();
+      }
+    } else {
+      get().closeDialogue();
+    }
+  },
+
+  closeDialogue: () => {
+    const state = get();
+    set({
+      dialogue: {
+        isActive: false,
+        currentTree: null,
+        currentNode: null,
+        npcId: null,
+        selectedResponse: 0,
+      },
+      interaction: {
+        ...state.interaction,
+        mode: 'normal',
       },
     });
   },

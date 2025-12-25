@@ -21,6 +21,7 @@ const INTERACT_KEYS = ['e', 'E', ' ']; // E or Space
 const CONFIRM_KEYS = ['e', 'E', 'Enter', ' ']; // E, Enter, or Space
 const CANCEL_KEYS = ['Escape'];
 const INVENTORY_KEYS = ['i', 'I', 'Tab'];
+const SNEAK_KEY = 'Shift';
 
 export interface InputCallbacks {
   onDirectionPress: (direction: Direction) => void;
@@ -39,6 +40,9 @@ export interface InputCallbacks {
   onInventoryUse: () => void;
   onInventoryCombine: () => void;
   onInventoryDrop: () => void;
+
+  // NPC/dialogue callbacks
+  onSneakToggle: () => void;
 
   // Debug callback
   onGiveTestItems: () => void;
@@ -202,9 +206,25 @@ export class InputManager {
       event.preventDefault();
       return;
     }
+
+    // Sneak toggle (Shift key)
+    if (event.key === SNEAK_KEY && mode === 'normal') {
+      this.callbacks.onSneakToggle();
+      event.preventDefault();
+      return;
+    }
   };
 
   handleKeyUp = (event: KeyboardEvent) => {
+    // Handle sneak key release
+    if (event.key === SNEAK_KEY) {
+      const mode = this.callbacks.getCurrentMode();
+      if (mode === 'normal') {
+        this.callbacks.onSneakToggle();
+        event.preventDefault();
+      }
+      return;
+    }
     const direction = KEY_MAP[event.key];
     if (!direction) return;
 
