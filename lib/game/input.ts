@@ -20,6 +20,7 @@ const KEY_MAP: Record<string, Direction> = {
 const INTERACT_KEYS = ['e', 'E', ' ']; // E or Space
 const CONFIRM_KEYS = ['e', 'E', 'Enter', ' ']; // E, Enter, or Space
 const CANCEL_KEYS = ['Escape'];
+const INVENTORY_KEYS = ['i', 'I', 'Tab'];
 
 export interface InputCallbacks {
   onDirectionPress: (direction: Direction) => void;
@@ -30,6 +31,17 @@ export interface InputCallbacks {
   onMenuUp: () => void;
   onMenuDown: () => void;
   getCurrentMode: () => UIMode;
+
+  // Inventory callbacks
+  onInventoryToggle: () => void;
+  onInventoryNavigate: (direction: Direction) => void;
+  onInventoryExamine: () => void;
+  onInventoryUse: () => void;
+  onInventoryCombine: () => void;
+  onInventoryDrop: () => void;
+
+  // Debug callback
+  onGiveTestItems: () => void;
 }
 
 export class InputManager {
@@ -42,6 +54,13 @@ export class InputManager {
 
   handleKeyDown = (event: KeyboardEvent) => {
     const mode = this.callbacks.getCurrentMode();
+
+    // Handle inventory toggle (works in normal and inventory modes)
+    if (INVENTORY_KEYS.includes(event.key) && (mode === 'normal' || mode === 'inventory')) {
+      this.callbacks.onInventoryToggle();
+      event.preventDefault();
+      return;
+    }
 
     // Handle based on current UI mode
     if (mode === 'text') {
@@ -82,6 +101,80 @@ export class InputManager {
       return;
     }
 
+    if (mode === 'inventory' || mode === 'combine') {
+      // In inventory mode, handle inventory navigation and actions
+      const direction = KEY_MAP[event.key];
+      if (direction) {
+        this.callbacks.onInventoryNavigate(direction);
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === 'e' || event.key === 'E') {
+        this.callbacks.onInventoryExamine();
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === 'u' || event.key === 'U') {
+        this.callbacks.onInventoryUse();
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === 'c' || event.key === 'C') {
+        this.callbacks.onInventoryCombine();
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === 'd' || event.key === 'D') {
+        this.callbacks.onInventoryDrop();
+        event.preventDefault();
+        return;
+      }
+
+      if (CANCEL_KEYS.includes(event.key)) {
+        if (mode === 'combine') {
+          this.callbacks.onCancel();
+        } else {
+          this.callbacks.onInventoryToggle();
+        }
+        event.preventDefault();
+        return;
+      }
+
+      // Block other keys
+      event.preventDefault();
+      return;
+    }
+
+    if (mode === 'useItem') {
+      // In useItem mode, allow movement and interaction
+      const direction = KEY_MAP[event.key];
+      if (direction) {
+        event.preventDefault();
+        if (this.keyStates.has(direction)) return;
+        this.keyStates.add(direction);
+        this.callbacks.onDirectionPress(direction);
+        return;
+      }
+
+      if (INTERACT_KEYS.includes(event.key)) {
+        this.callbacks.onInteract();
+        event.preventDefault();
+        return;
+      }
+
+      if (CANCEL_KEYS.includes(event.key)) {
+        this.callbacks.onCancel();
+        event.preventDefault();
+        return;
+      }
+
+      return;
+    }
+
     // Normal mode - handle movement and interaction
     const direction = KEY_MAP[event.key];
     if (direction) {
@@ -99,6 +192,13 @@ export class InputManager {
     // Check for interact key
     if (INTERACT_KEYS.includes(event.key)) {
       this.callbacks.onInteract();
+      event.preventDefault();
+      return;
+    }
+
+    // Debug: G key for giving test items
+    if (event.key === 'g' || event.key === 'G') {
+      this.callbacks.onGiveTestItems();
       event.preventDefault();
       return;
     }

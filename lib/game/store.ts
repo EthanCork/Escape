@@ -11,6 +11,18 @@ import {
   createInitialObjectState,
   getObjectCenter,
 } from './interactions';
+import {
+  createInitialInventory,
+  addItem,
+  removeItem,
+  dropItem,
+  pickupDroppedItem,
+  combineItems,
+  useItem,
+  canUseItemOn,
+  hasRoomForItem,
+} from './inventory';
+import { getItem } from './items';
 
 interface GameStore extends GameState {
   // Movement actions
@@ -19,6 +31,7 @@ interface GameStore extends GameState {
   completePlayerMove: () => void;
   setInput: (direction: Direction, pressed: boolean) => void;
   toggleDebug: () => void;
+  giveTestItems: () => void;
 
   // Transition actions
   startTransition: (targetRoomId: string, targetSpawnId: string) => void;
@@ -35,6 +48,21 @@ interface GameStore extends GameState {
   dismissText: () => void;
   getObjectState: (objectId: string) => ObjectState;
   updateObjectState: (objectId: string, changes: Partial<ObjectState>) => void;
+
+  // Inventory actions
+  openInventory: () => void;
+  closeInventory: () => void;
+  navigateInventory: (direction: 'up' | 'down' | 'left' | 'right') => void;
+  selectInventorySlot: (slotIndex: number) => void;
+  examineInventoryItem: (slotIndex: number) => void;
+  dropInventoryItem: (slotIndex: number) => void;
+  useInventoryItem: (slotIndex: number) => void;
+  startCombine: (slotIndex: number) => void;
+  finishCombine: (slotIndex: number) => void;
+  cancelCombine: () => void;
+  addItemToInventory: (itemId: string) => boolean;
+  tryPickupDroppedItem: (roomId: string, itemIndex: number) => void;
+  applyItemToObject: (itemId: string, objectId: string) => void;
 }
 
 // Helper to convert grid position to pixel position
@@ -88,6 +116,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     },
     objectStates: {},
   },
+  inventory: createInitialInventory(),
 
   // Actions
   movePlayer: (direction: Direction) => {
@@ -200,6 +229,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   toggleDebug: () => {
     set({ debugMode: !get().debugMode });
+  },
+
+  // Debug function to add test items
+  giveTestItems: () => {
+    const state = get();
+    // Add some test items to inventory
+    get().addItemToInventory('sharpened_spoon');
+    get().addItemToInventory('book');
+    get().addItemToInventory('wire');
   },
 
   startTransition: (targetRoomId: string, targetSpawnId: string) => {
@@ -432,6 +470,30 @@ export const useGameStore = create<GameStore>((set, get) => ({
       get().updateObjectState(targetedObject.id, result.stateChanges);
     }
 
+    // Handle item found from search
+    if (result.itemFound && !state.inventory.takenItems.has(targetedObject.id)) {
+      const success = get().addItemToInventory(result.itemFound.itemId);
+
+      if (success) {
+        // Mark as taken
+        set({
+          inventory: {
+            ...state.inventory,
+            takenItems: new Set([...state.inventory.takenItems, targetedObject.id]),
+          },
+        });
+        // Close menu
+        get().closeContextMenu();
+        // Show success message
+        get().showText(`Found ${result.itemFound.name}! Added to inventory.`, targetedObject.name);
+      } else {
+        // Inventory full
+        get().closeContextMenu();
+        get().showText(`You found ${result.itemFound.name}, but your inventory is full! Drop something and search again.`, targetedObject.name);
+      }
+      return;
+    }
+
     // Close menu
     get().closeContextMenu();
 
@@ -508,4 +570,364 @@ export const useGameStore = create<GameStore>((set, get) => ({
       },
     });
   },
+
+  // Inventory actions
+  openInventory: () => {
+    const state = get();
+
+    // Only open from normal mode
+    if (state.interaction.mode !== 'normal') return;
+
+    set({
+      interaction: {
+        ...state.interaction,
+        mode: 'inventory',
+      },
+      inventory: {
+        ...state.inventory,
+        isOpen: true,
+      },
+    });
+  },
+
+  closeInventory: () => {
+    const state = get();
+
+    set({
+      interaction: {
+        ...state.interaction,
+        mode: 'normal',
+      },
+      inventory: {
+        ...state.inventory,
+        isOpen: false,
+        useItemId: null,
+        combineFirstItemSlot: null,
+      },
+    });
+  },
+
+  navigateInventory: (direction: 'up' | 'down' | 'left' | 'right') => {
+    const state = get();
+    if (!state.inventory.isOpen) return;
+
+    const currentSlot = state.inventory.selectedSlot;
+    let newSlot = currentSlot;
+
+    // Grid is 2 rows x 3 columns (slots 0-5)
+    // Row 0: slots 0, 1, 2
+    // Row 1: slots 3, 4, 5
+
+    const row = Math.floor(currentSlot / 3);
+    const col = currentSlot % 3;
+
+    switch (direction) {
+      case 'up':
+        if (row > 0) newSlot = currentSlot - 3;
+        break;
+      case 'down':
+        if (row < 1) newSlot = currentSlot + 3;
+        break;
+      case 'left':
+        if (col > 0) newSlot = currentSlot - 1;
+        break;
+      case 'right':
+        if (col < 2) newSlot = currentSlot + 1;
+        break;
+    }
+
+    set({
+      inventory: {
+        ...state.inventory,
+        selectedSlot: newSlot,
+      },
+    });
+  },
+
+  selectInventorySlot: (slotIndex: number) => {
+    const state = get();
+
+    set({
+      inventory: {
+        ...state.inventory,
+        selectedSlot: slotIndex,
+      },
+    });
+  },
+
+  examineInventoryItem: (slotIndex: number) => {
+    const state = get();
+    const slot = state.inventory.slots[slotIndex];
+
+    if (!slot) return;
+
+    const item = getItem(slot.itemId);
+    if (!item) return;
+
+    // Show item description
+    let text = item.description;
+
+    // Add contraband warning
+    if (item.contrabandLevel !== 'none') {
+      text += `\n\n⚠️ ${getContrabandWarning(item.contrabandLevel)}`;
+    }
+
+    // If it's a document, show readable content
+    if (item.readableContent) {
+      text = item.readableContent;
+    }
+
+    get().showText(text, item.name);
+  },
+
+  dropInventoryItem: (slotIndex: number) => {
+    const state = get();
+    const slot = state.inventory.slots[slotIndex];
+
+    if (!slot) return;
+
+    const item = getItem(slot.itemId);
+    if (!item || !item.canDrop) {
+      get().showText("You can't drop this item.");
+      return;
+    }
+
+    // Drop at player's current position
+    const result = dropItem(
+      state.inventory,
+      slotIndex,
+      state.currentRoom.id,
+      state.player.gridPosition
+    );
+
+    if (result.success) {
+      set({
+        inventory: {
+          ...state.inventory,
+          slots: result.updatedSlots,
+          droppedItems: result.updatedDroppedItems,
+        },
+      });
+
+      get().showText(`Dropped ${item.name}`);
+    }
+  },
+
+  useInventoryItem: (slotIndex: number) => {
+    const state = get();
+    const slot = state.inventory.slots[slotIndex];
+
+    if (!slot) return;
+
+    const item = getItem(slot.itemId);
+    if (!item) return;
+
+    // Close inventory and enter "use item" mode
+    set({
+      interaction: {
+        ...state.interaction,
+        mode: 'useItem',
+      },
+      inventory: {
+        ...state.inventory,
+        isOpen: false,
+        useItemId: slot.itemId,
+      },
+    });
+
+    get().showText(`Use ${item.name} on what? (ESC to cancel)`);
+  },
+
+  startCombine: (slotIndex: number) => {
+    const state = get();
+    const slot = state.inventory.slots[slotIndex];
+
+    if (!slot) return;
+
+    const item = getItem(slot.itemId);
+    if (!item || !item.canCombine) {
+      get().showText("This item can't be combined with anything.");
+      return;
+    }
+
+    set({
+      interaction: {
+        ...state.interaction,
+        mode: 'combine',
+      },
+      inventory: {
+        ...state.inventory,
+        combineFirstItemSlot: slotIndex,
+      },
+    });
+
+    get().showText(`Combine ${item.name} with what? (ESC to cancel)`);
+  },
+
+  finishCombine: (slotIndex: number) => {
+    const state = get();
+
+    if (state.inventory.combineFirstItemSlot === null) return;
+
+    const result = combineItems(
+      state.inventory,
+      state.inventory.combineFirstItemSlot,
+      slotIndex
+    );
+
+    if (result.success) {
+      set({
+        interaction: {
+          ...state.interaction,
+          mode: 'inventory',
+        },
+        inventory: {
+          ...state.inventory,
+          slots: result.updatedSlots,
+          combineFirstItemSlot: null,
+        },
+      });
+
+      const newItem = result.newItemId ? getItem(result.newItemId) : null;
+      get().showText(result.message, newItem ? `Created: ${newItem.name}` : undefined);
+    } else {
+      get().showText(result.message);
+      set({
+        interaction: {
+          ...state.interaction,
+          mode: 'inventory',
+        },
+        inventory: {
+          ...state.inventory,
+          combineFirstItemSlot: null,
+        },
+      });
+    }
+  },
+
+  cancelCombine: () => {
+    const state = get();
+
+    set({
+      interaction: {
+        ...state.interaction,
+        mode: 'inventory',
+      },
+      inventory: {
+        ...state.inventory,
+        combineFirstItemSlot: null,
+      },
+    });
+  },
+
+  addItemToInventory: (itemId: string): boolean => {
+    const state = get();
+    const result = addItem(state.inventory, itemId);
+
+    if (result.success) {
+      set({
+        inventory: {
+          ...state.inventory,
+          slots: result.updatedSlots,
+        },
+      });
+      return true;
+    }
+
+    return false;
+  },
+
+  tryPickupDroppedItem: (roomId: string, itemIndex: number) => {
+    const state = get();
+    const result = pickupDroppedItem(state.inventory, roomId, itemIndex);
+
+    if (result.success) {
+      set({
+        inventory: {
+          ...state.inventory,
+          slots: result.updatedSlots,
+          droppedItems: result.updatedDroppedItems,
+        },
+      });
+      get().showText(result.message);
+    } else {
+      get().showText(result.message);
+    }
+  },
+
+  applyItemToObject: (itemId: string, objectId: string) => {
+    const state = get();
+
+    // Check if item can be used on this object
+    if (!canUseItemOn(itemId, objectId)) {
+      get().showText("That doesn't seem to work.");
+      // Exit use item mode
+      set({
+        interaction: {
+          ...state.interaction,
+          mode: 'normal',
+        },
+        inventory: {
+          ...state.inventory,
+          useItemId: null,
+        },
+      });
+      return;
+    }
+
+    // Find the item in inventory
+    const slotIndex = state.inventory.slots.findIndex(s => s?.itemId === itemId);
+    if (slotIndex < 0) return;
+
+    // Use the item
+    const useResult = useItem(state.inventory, slotIndex);
+    if (!useResult.success) return;
+
+    // Update inventory if item was consumed
+    if (useResult.consumed) {
+      set({
+        inventory: {
+          ...state.inventory,
+          slots: useResult.updatedSlots,
+          useItemId: null,
+        },
+      });
+    }
+
+    // Execute the object interaction
+    // TODO: This needs custom logic per object-item combination
+    // For now, just show a success message
+    const item = getItem(itemId);
+    const targetedObject = state.interaction.targetedObject;
+
+    if (item && targetedObject) {
+      get().showText(`You used the ${item.name} on the ${targetedObject.name}.`);
+    }
+
+    // Exit use item mode
+    set({
+      interaction: {
+        ...state.interaction,
+        mode: 'normal',
+      },
+      inventory: {
+        ...state.inventory,
+        useItemId: null,
+      },
+    });
+  },
 }));
+
+// Helper function for contraband warnings (local to store)
+function getContrabandWarning(level: string): string {
+  switch (level) {
+    case 'low':
+      return 'Slightly suspicious. Guards might question it.';
+    case 'medium':
+      return 'Clearly against the rules. If caught, expect consequences.';
+    case 'high':
+      return 'Highly illegal contraband. If caught with this, you\'ll face serious punishment.';
+    default:
+      return '';
+  }
+}

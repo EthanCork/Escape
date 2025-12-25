@@ -1,7 +1,7 @@
 import type { Tile, TileType } from './types';
 
 // Rendering constants
-export const TILE_SIZE = 32;
+export const TILE_SIZE = 48; // Optimized for clarity and performance
 export const MOVE_DURATION = 180; // milliseconds
 export const TARGET_FPS = 60;
 export const TRANSITION_DURATION = 250; // milliseconds for fade in/out

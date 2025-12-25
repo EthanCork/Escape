@@ -64,7 +64,7 @@ export const cellC14Desk: InteractiveObject = createObject(
     searchFindText: "The drawer contains a worn paperback book. 'The Count of Monte Cristo'—how appropriate.",
     searchEmptyText: "The drawer is empty.",
     hiddenItem: {
-      itemId: 'book_monte_cristo',
+      itemId: 'book',
       name: 'The Count of Monte Cristo',
       description: 'A classic tale of imprisonment and escape. Perhaps it contains inspiration.',
     },

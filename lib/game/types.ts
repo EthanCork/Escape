@@ -125,7 +125,7 @@ export interface ObjectState {
   enabled: boolean;
 }
 
-export type UIMode = 'normal' | 'menu' | 'text';
+export type UIMode = 'normal' | 'menu' | 'text' | 'inventory' | 'useItem' | 'combine';
 
 export interface ContextMenu {
   isOpen: boolean;
@@ -149,6 +149,40 @@ export interface InteractionState {
   objectStates: Record<string, ObjectState>;
 }
 
+// ========================================
+// INVENTORY SYSTEM - Phase 4
+// ========================================
+
+export interface InventorySlot {
+  itemId: string;
+  quantity: number;
+  slot: number;
+}
+
+export interface DroppedItem {
+  itemId: string;
+  position: Position;
+}
+
+export interface InventoryState {
+  isOpen: boolean;
+  slots: (InventorySlot | null)[]; // Array of 6 slots (null = empty)
+  maxSlots: number; // Default 6, expandable to 8
+  selectedSlot: number; // Currently selected slot (0-5)
+
+  // Use item mode
+  useItemId: string | null; // Item being used (if in useItem mode)
+
+  // Combine mode
+  combineFirstItemSlot: number | null; // First item selected for combining
+
+  // Dropped items per room
+  droppedItems: Record<string, DroppedItem[]>; // roomId -> dropped items
+
+  // Taken items (prevent re-finding)
+  takenItems: Set<string>; // Set of object IDs that had items taken
+}
+
 export interface GameState {
   player: PlayerState;
   currentRoom: Room;
@@ -157,4 +191,5 @@ export interface GameState {
   debugMode: boolean;
   transition: TransitionState;
   interaction: InteractionState;
+  inventory: InventoryState;
 }
