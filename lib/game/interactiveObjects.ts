@@ -38,10 +38,11 @@ export const cellC14Bed: InteractiveObject = createObject(
     { x: 2, y: 3 },
   ],
   "A thin mattress on a rusted metal frame. Standard prison issue. The mattress looks lumpy—something might be hidden inside.",
-  ['examine', 'search'],
+  ['examine', 'search', 'use'],
   {
     searchFindText: "Hidden inside the mattress stuffing, you find a sharpened spoon. Previous occupant's work, perhaps.",
     searchEmptyText: "You've already searched the mattress thoroughly.",
+    useText: "You lay down on the bed. Time to rest.",
     hiddenItem: {
       itemId: 'sharpened_spoon',
       name: 'Sharpened Spoon',

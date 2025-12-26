@@ -62,6 +62,9 @@ export class Renderer {
       this.drawTransitionOverlay(state.transition.progress);
     }
 
+    // Draw time-of-day lighting overlay
+    this.drawLightingOverlay(state.time.currentTime.hour);
+
     // Debug mode disabled - remove all debug rendering
   }
 
@@ -670,6 +673,10 @@ export class Renderer {
     const node = tree.nodes[state.dialogue.currentNode];
     if (!node) return;
 
+    // Save and reset transform for UI elements
+    this.ctx.save();
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+
     // Draw semi-transparent overlay
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -703,32 +710,68 @@ export class Renderer {
       this.ctx.fillText(line, boxX + 20, boxY + 60 + i * 20);
     });
 
-    // Draw response options
+    // Draw response options or end message
     const responsesY = boxY + 140;
-    node.responses.forEach((response, i) => {
-      const isSelected = i === state.dialogue.selectedResponse;
-      const optionY = responsesY + i * 30;
 
-      // Draw selection indicator
-      if (isSelected) {
-        this.ctx.fillStyle = '#444444';
-        this.ctx.fillRect(boxX + 10, optionY - 18, boxWidth - 20, 25);
-      }
+    if (node.responses.length > 0) {
+      node.responses.forEach((response, i) => {
+        const isSelected = i === state.dialogue.selectedResponse;
+        const optionY = responsesY + i * 30;
 
-      // Draw response number and text
-      this.ctx.fillStyle = isSelected ? '#ffcc00' : '#cccccc';
-      this.ctx.font = '14px monospace';
-      this.ctx.fillText(`${i + 1}. ${response.text}`, boxX + 20, optionY);
-    });
+        // Draw selection indicator
+        if (isSelected) {
+          this.ctx.fillStyle = '#444444';
+          this.ctx.fillRect(boxX + 10, optionY - 18, boxWidth - 20, 25);
+        }
 
-    // Draw instruction at bottom
-    this.ctx.fillStyle = '#888888';
-    this.ctx.font = '12px monospace';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText(
-      'Arrow Keys to navigate • E/Enter to select',
-      boxX + boxWidth / 2,
-      boxY + boxHeight - 15
-    );
+        // Draw response number and text
+        this.ctx.fillStyle = isSelected ? '#ffcc00' : '#cccccc';
+        this.ctx.font = '14px monospace';
+        this.ctx.fillText(`${i + 1}. ${response.text}`, boxX + 20, optionY);
+      });
+
+      // Draw instruction at bottom
+      this.ctx.fillStyle = '#888888';
+      this.ctx.font = '12px monospace';
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText(
+        'Arrow Keys to navigate • E/Enter to select',
+        boxX + boxWidth / 2,
+        boxY + boxHeight - 15
+      );
+    } else {
+      // End node - show continue prompt
+      this.ctx.fillStyle = '#888888';
+      this.ctx.font = '12px monospace';
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText(
+        'Press any key to continue',
+        boxX + boxWidth / 2,
+        boxY + boxHeight - 15
+      );
+    }
+
+    // Restore context state
+    this.ctx.restore();
+  }
+
+  private drawLightingOverlay(hour: number) {
+    // Determine lighting based on time of day
+    let overlay = { color: 'rgba(0, 0, 0, 0)', name: 'Day' };
+
+    if (hour >= 6 && hour < 20) {
+      // Daytime (06:00-20:00) - Full brightness, no overlay
+      return;
+    } else if (hour >= 20 && hour < 22) {
+      // Evening (20:00-22:00) - Slightly dimmer with warm tones
+      overlay = { color: 'rgba(20, 10, 0, 0.15)', name: 'Evening' };
+    } else {
+      // Night (22:00-06:00) - Darker with cool blue tones
+      overlay = { color: 'rgba(0, 10, 30, 0.35)', name: 'Night' };
+    }
+
+    // Apply overlay
+    this.ctx.fillStyle = overlay.color;
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
 }

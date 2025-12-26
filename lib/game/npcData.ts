@@ -21,14 +21,13 @@ export const guardMartinez: NPCData = {
   type: 'guard',
   sprite: 'guard_regular',
 
-  // Position
-  currentRoom: 'corridor_b',
-  position: { x: 17, y: 4 },
-  direction: 'left',
+  // Position - Starts in guard station at 06:00 (early_morning)
+  currentRoom: 'guard_station_b',
+  position: { x: 5, y: 5 },
+  direction: 'down',
 
   // Movement
   patrolRoute: [
-    { room: 'corridor_b', col: 17, row: 4, wait: 3, direction: 'left' },
     { room: 'corridor_b', col: 2, row: 4, wait: 2, direction: 'right' },
     { room: 'corridor_b', col: 17, row: 4, wait: 2, direction: 'left' },
   ],
@@ -36,17 +35,53 @@ export const guardMartinez: NPCData = {
   movementSpeed: 2, // tiles per second
   isMoving: false,
   targetPosition: null,
-  pixelPosition: gridToPixel({ x: 17, y: 4 }),
-  targetPixelPosition: gridToPixel({ x: 17, y: 4 }),
+  pixelPosition: gridToPixel({ x: 5, y: 5 }),
+  targetPixelPosition: gridToPixel({ x: 5, y: 5 }),
 
-  // Behavior
+  // Behavior - Full daily schedule
   schedule: {
-    '00:00-23:59': {
+    'early_morning': {
+      behavior: 'idle',
+      room: 'guard_station_b',
+    },
+    'breakfast': {
       behavior: 'patrol',
       room: 'corridor_b',
+      patrolRoute: 'corridor_main',
+    },
+    'morning_work': {
+      behavior: 'patrol',
+      room: 'corridor_b',
+      patrolRoute: 'corridor_main',
+    },
+    'lunch': {
+      behavior: 'patrol',
+      room: 'corridor_b',
+      patrolRoute: 'corridor_main',
+    },
+    'afternoon_work': {
+      behavior: 'patrol',
+      room: 'corridor_b',
+      patrolRoute: 'corridor_main',
+    },
+    'recreation': {
+      behavior: 'idle',
+      room: 'guard_station_b',
+    },
+    'dinner': {
+      behavior: 'idle',
+      room: 'guard_station_b',
+    },
+    'evening_free': {
+      behavior: 'idle',
+      room: 'guard_station_b',
+    },
+    'lockdown': {
+      behavior: 'idle',
+      room: 'guard_station_b',
     },
   },
-  currentBehavior: 'patrol',
+  currentBehavior: 'idle', // Starts at 06:00 (early_morning)
   alertness: 0,
 
   // Vision
@@ -89,9 +124,41 @@ export const oldTimer: NPCData = {
   pixelPosition: gridToPixel({ x: 2, y: 3 }),
   targetPixelPosition: gridToPixel({ x: 2, y: 3 }),
 
-  // Behavior
+  // Behavior - Full daily schedule
   schedule: {
-    '00:00-23:59': {
+    'early_morning': {
+      behavior: 'idle',
+      room: 'cell_c12',
+    },
+    'breakfast': {
+      behavior: 'idle',
+      room: 'cafeteria',
+    },
+    'morning_work': {
+      behavior: 'idle',
+      room: 'yard',
+    },
+    'lunch': {
+      behavior: 'idle',
+      room: 'cafeteria',
+    },
+    'afternoon_work': {
+      behavior: 'idle',
+      room: 'yard',
+    },
+    'recreation': {
+      behavior: 'idle',
+      room: 'yard',
+    },
+    'dinner': {
+      behavior: 'idle',
+      room: 'cafeteria',
+    },
+    'evening_free': {
+      behavior: 'idle',
+      room: 'cell_c12',
+    },
+    'lockdown': {
       behavior: 'idle',
       room: 'cell_c12',
     },

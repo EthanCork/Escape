@@ -6,6 +6,7 @@ import { Renderer } from '@/lib/game/renderer';
 import { InputManager } from '@/lib/game/input';
 import { GameLoop, MovementController } from '@/lib/game/gameLoop';
 import { TILE_SIZE } from '@/lib/game/constants';
+import { formatTime, getPeriod } from '@/lib/game/timeSystem';
 
 export default function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -49,6 +50,10 @@ export default function GameCanvas() {
     navigateDialogueResponses,
     selectDialogueResponse,
     dialogue,
+    time,
+    updateTime,
+    startWait,
+    cancelWait,
   } = useGameStore();
 
   // Function to start game
@@ -217,6 +222,16 @@ export default function GameCanvas() {
         toggleSneak();
       },
 
+      // Time callbacks
+      onWaitToggle: () => {
+        const state = useGameStore.getState();
+        if (state.time.isWaiting) {
+          cancelWait();
+        } else {
+          startWait();
+        }
+      },
+
       // Debug callback
       onGiveTestItems: () => {
         const state = useGameStore.getState();
@@ -231,8 +246,14 @@ export default function GameCanvas() {
     // Initialize game loop
     gameLoopRef.current = new GameLoop(
       (deltaTime) => {
+        // Debug: Verify game loop is running
+        console.log('[GameLoop] Update called - deltaTime:', deltaTime);
+
         // Update logic
         const state = useGameStore.getState();
+
+        // Update game time
+        updateTime(deltaTime);
 
         // Update room transitions
         if (state.transition.isTransitioning) {
@@ -334,36 +355,69 @@ export default function GameCanvas() {
   }
 
   return (
-    <div
-      className="fixed inset-0 bg-black overflow-hidden"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '100vw',
-        height: '100vh'
-      }}
-    >
-      <canvas
-        ref={canvasRef}
-        style={{ display: 'block', margin: '0' }}
-      />
+    <>
+      <div
+        className="fixed inset-0 bg-black overflow-hidden"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '100vw',
+          height: '100vh'
+        }}
+      >
+        <canvas
+          ref={canvasRef}
+          style={{ display: 'block', margin: '0' }}
+        />
 
-      {/* Debug info removed */}
+        {/* Debug info removed */}
 
-      {/* Interaction prompts - always show */}
-      <div className="absolute bottom-4 left-4 text-gray-400 text-sm">
-        {interaction.targetedObject && interaction.mode === 'normal' && (
-          <p className="text-yellow-400">
-            Press E to interact with {interaction.targetedObject.name}
-          </p>
-        )}
-        {interaction.mode === 'useItem' && inventory.useItemId && (
-          <p className="text-cyan-400">
-            Use item mode - Press E on object or ESC to cancel
-          </p>
-        )}
+        {/* Interaction prompts - always show */}
+        <div className="absolute bottom-4 left-4 text-gray-400 text-sm">
+          {interaction.targetedObject && interaction.mode === 'normal' && (
+            <p className="text-yellow-400">
+              Press E to interact with {interaction.targetedObject.name}
+            </p>
+          )}
+          {interaction.mode === 'useItem' && inventory.useItemId && (
+            <p className="text-cyan-400">
+              Use item mode - Press E on object or ESC to cancel
+            </p>
+          )}
+        </div>
       </div>
-    </div>
+
+      {/* Time Display - Top right corner */}
+      <div className="fixed top-4 right-4 bg-black/80 border-2 border-gray-600 px-4 py-3 min-w-[160px] z-50 pointer-events-none">
+        <div className="text-center space-y-1">
+          <div className="text-gray-400 text-xs font-bold tracking-wider">
+            DAY {time.currentTime.day}
+          </div>
+          <div className="text-gray-200 text-2xl font-mono font-bold tracking-wider">
+            {formatTime(time.currentTime)}
+          </div>
+          <div className="text-cyan-400 text-xs font-bold uppercase tracking-wide">
+            {getPeriod(time.currentPeriod)?.name || time.currentPeriod}
+          </div>
+          {time.isWaiting && (
+            <div className="text-yellow-400 text-xs animate-pulse mt-1">
+              ⏩ Waiting...
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Period Transition Notification */}
+      {time.periodNotification && (
+        <div className="fixed top-28 right-4 bg-black/90 border-4 border-yellow-500 px-6 py-3 min-w-[160px] z-50 pointer-events-none">
+          <div className="text-center">
+            <div className="text-yellow-400 text-lg font-bold tracking-wider">
+              {time.periodNotification}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

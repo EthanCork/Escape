@@ -44,6 +44,9 @@ export interface InputCallbacks {
   // NPC/dialogue callbacks
   onSneakToggle: () => void;
 
+  // Time callbacks
+  onWaitToggle: () => void;
+
   // Debug callback
   onGiveTestItems: () => void;
 }
@@ -153,6 +156,32 @@ export class InputManager {
       return;
     }
 
+    if (mode === 'dialogue') {
+      // In dialogue mode, handle response navigation
+      if (event.key === 'ArrowUp' || event.key === 'w' || event.key === 'W') {
+        this.callbacks.onMenuUp();
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === 'ArrowDown' || event.key === 's' || event.key === 'S') {
+        this.callbacks.onMenuDown();
+        event.preventDefault();
+        return;
+      }
+
+      // Any key confirms/continues dialogue (works for both responses and end nodes)
+      if (event.key.length === 1 || CONFIRM_KEYS.includes(event.key)) {
+        this.callbacks.onConfirm();
+        event.preventDefault();
+        return;
+      }
+
+      // Block other keys during dialogue
+      event.preventDefault();
+      return;
+    }
+
     if (mode === 'useItem') {
       // In useItem mode, allow movement and interaction
       const direction = KEY_MAP[event.key];
@@ -210,6 +239,13 @@ export class InputManager {
     // Sneak toggle (Shift key)
     if (event.key === SNEAK_KEY && mode === 'normal') {
       this.callbacks.onSneakToggle();
+      event.preventDefault();
+      return;
+    }
+
+    // Wait toggle (T key)
+    if ((event.key === 't' || event.key === 'T') && mode === 'normal') {
+      this.callbacks.onWaitToggle();
       event.preventDefault();
       return;
     }

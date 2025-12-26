@@ -25,7 +25,15 @@ import {
 import { getItem } from './items';
 import { NPCS, getNPCAdjacentToPosition } from './npcData';
 import { getDialogueTree } from './dialogueData';
-import { updatePatrol, isPlayerInVisionCone, calculateDetectionLevel, canTalkToNPC, shouldReactToPlayer } from './npcSystems';
+import { updatePatrol, isPlayerInVisionCone, calculateDetectionLevel, canTalkToNPC, shouldReactToPlayer, updateNPCSchedule } from './npcSystems';
+import {
+  createInitialTime,
+  advanceTime as advanceGameTime,
+  getPeriodForTime,
+  formatTime,
+  isDoorOpenBySchedule,
+  getPeriod,
+} from './timeSystem';
 
 interface GameStore extends GameState {
   // Movement actions
@@ -77,6 +85,14 @@ interface GameStore extends GameState {
   selectDialogueResponse: (responseIndex: number) => void;
   navigateDialogueResponses: (direction: 'up' | 'down') => void;
   closeDialogue: () => void;
+
+  // Time actions
+  updateTime: (deltaTime: number) => void;
+  pauseTime: () => void;
+  resumeTime: () => void;
+  startWait: () => void;
+  cancelWait: () => void;
+  sleep: () => void;
 }
 
 // Helper to convert grid position to pixel position
@@ -150,6 +166,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
     selectedResponse: 0,
   },
   playerKnowledge: new Set<string>(),
+  time: {
+    currentTime: createInitialTime(),
+    currentPeriod: 'early_morning',
+    isPaused: false,
+    timeScale: 0.333, // 1 real second = 0.333 game minutes (3 real minutes = 1 game hour)
+    isWaiting: false,
+    waitTargetTime: null,
+    periodNotification: null,
+    notificationTimeout: null,
+  },
 
   // Actions
   movePlayer: (direction: Direction) => {
@@ -212,10 +238,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
       (e) => e.position.x === newPos.x && e.position.y === newPos.y
     );
 
-    if (exit && (exit.state === 'open' || exit.state === 'unlocked')) {
-      // Trigger room transition
-      get().startTransition(exit.targetRoom, exit.targetSpawn);
-      return;
+    if (exit) {
+      // Check if door should be open based on time
+      const shouldBeOpen = isDoorOpenBySchedule(exit.id, state.time.currentPeriod);
+      const isUnlocked = exit.state === 'open' || exit.state === 'unlocked';
+
+      // Also check if player has override key
+      let hasOverrideKey = false;
+      if (exit.requiredKey) {
+        hasOverrideKey = state.inventory.slots.some(slot => slot?.itemId === exit.requiredKey);
+      }
+
+      if ((shouldBeOpen && isUnlocked) || hasOverrideKey) {
+        // Trigger room transition
+        get().startTransition(exit.targetRoom, exit.targetSpawn);
+        return;
+      } else if (!shouldBeOpen) {
+        // Door is time-locked
+        set({
+          player: {
+            ...state.player,
+            direction,
+          },
+        });
+        // Could show a message here about the door being locked
+        return;
+      }
     }
 
     // Valid move - start moving
@@ -555,6 +603,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // Get object state
     const objectState = get().getObjectState(targetedObject.id);
+
+    // Special handling for bed "use" action - trigger sleep
+    if (targetedObject.id === 'cell_c14_bed' && selectedAction.id === 'use') {
+      get().closeContextMenu();
+      get().sleep();
+      return;
+    }
 
     // Execute the action
     const result = executeAction(selectedAction.id, targetedObject, objectState);
@@ -1123,6 +1178,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     if (!npc || !npc.dialogueTree) return;
 
+    // Check if NPC is in the current room
+    if (npc.currentRoom !== state.currentRoom.id) {
+      get().showText("You're too far away to talk.");
+      return;
+    }
+
     // Check if NPC can be talked to
     if (!canTalkToNPC(npc, state.player.gridPosition)) {
       get().showText("You're too far away to talk.");
@@ -1196,6 +1257,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const node = tree.nodes[state.dialogue.currentNode];
     if (!node) return;
+
+    // If this is an end node (no responses), just close the dialogue
+    if (node.responses.length === 0) {
+      get().closeDialogue();
+      return;
+    }
 
     const response = node.responses[responseIndex];
     if (!response) return;
@@ -1284,6 +1351,245 @@ export const useGameStore = create<GameStore>((set, get) => ({
         mode: 'normal',
       },
     });
+  },
+
+  // Time actions
+  updateTime: (deltaTime: number) => {
+    const state = get();
+
+    // Don't advance time if paused or in certain UI modes
+    // NOTE: Removed 'text' mode from blocking conditions - time should advance even when text is showing
+    if (
+      state.time.isPaused ||
+      state.interaction.mode === 'inventory' ||
+      state.interaction.mode === 'dialogue' ||
+      state.interaction.mode === 'menu' ||
+      state.transition.isTransitioning
+    ) {
+      console.log('[updateTime] BLOCKED - mode:', state.interaction.mode);
+      return;
+    }
+
+    const timeScale = state.time.isWaiting ? 100 : state.time.timeScale;
+    const result = advanceGameTime(state.time.currentTime, deltaTime, timeScale);
+
+    // Debug: Log occasionally to verify it's running
+    if (Math.random() < 0.01) { // Log ~1% of frames
+      console.log('[updateTime] Running - hour:', result.newTime.hour, 'minute:', result.newTime.minute);
+    }
+
+    // Update time
+    set({
+      time: {
+        ...state.time,
+        currentTime: result.newTime,
+        currentPeriod: result.newPeriod,
+      },
+    });
+
+    // Handle period change
+    if (result.periodChanged) {
+      const period = getPeriod(result.newPeriod);
+      if (period) {
+        console.log(`Period changed to: ${period.name} (${result.newPeriod})`);
+
+        // Update all NPC schedules
+        const updatedNPCs: Record<string, NPCData> = { ...state.npcs };
+        Object.keys(updatedNPCs).forEach((npcId) => {
+          const npc = updatedNPCs[npcId];
+          const scheduleChanges = updateNPCSchedule(npc, result.newPeriod, state.currentRoom.id);
+          if (Object.keys(scheduleChanges).length > 0) {
+            updatedNPCs[npcId] = { ...npc, ...scheduleChanges };
+            console.log(`[${npc.name}] Schedule updated: ${scheduleChanges.currentRoom || npc.currentRoom}, ${scheduleChanges.currentBehavior || npc.currentBehavior}`);
+          }
+        });
+
+        set({ npcs: updatedNPCs });
+
+        // Show period transition notification
+        if (state.time.notificationTimeout) {
+          clearTimeout(state.time.notificationTimeout);
+        }
+
+        const timeout = setTimeout(() => {
+          set({
+            time: {
+              ...get().time,
+              periodNotification: null,
+              notificationTimeout: null,
+            },
+          });
+        }, 3000) as unknown as number;
+
+        set({
+          time: {
+            ...state.time,
+            currentTime: result.newTime,
+            currentPeriod: result.newPeriod,
+            periodNotification: period.name.toUpperCase(),
+            notificationTimeout: timeout,
+          },
+        });
+      }
+    }
+
+    // Check if waiting target reached
+    if (state.time.isWaiting && state.time.waitTargetTime) {
+      const target = state.time.waitTargetTime;
+      const current = result.newTime;
+
+      if (
+        current.day >= target.day &&
+        current.hour >= target.hour &&
+        current.minute >= target.minute
+      ) {
+        // Waiting complete
+        set({
+          time: {
+            ...state.time,
+            currentTime: result.newTime,
+            currentPeriod: result.newPeriod,
+            isWaiting: false,
+            waitTargetTime: null,
+          },
+        });
+        console.log('Wait complete');
+      }
+    }
+  },
+
+  pauseTime: () => {
+    set({
+      time: {
+        ...get().time,
+        isPaused: true,
+      },
+    });
+  },
+
+  resumeTime: () => {
+    set({
+      time: {
+        ...get().time,
+        isPaused: false,
+      },
+    });
+  },
+
+  startWait: () => {
+    const state = get();
+
+    // Can't wait in certain conditions
+    if (
+      state.interaction.mode !== 'normal' ||
+      state.transition.isTransitioning ||
+      state.player.isMoving
+    ) {
+      return;
+    }
+
+    // For now, wait until next period starts
+    const currentTime = state.time.currentTime;
+    const currentPeriod = getPeriod(state.time.currentPeriod);
+
+    if (!currentPeriod) return;
+
+    // Calculate target time (end of current period)
+    const targetTime = {
+      day: currentTime.day,
+      hour: currentPeriod.endHour,
+      minute: currentPeriod.endMinute,
+      totalMinutes: currentTime.totalMinutes, // Will be updated by advanceTime
+    };
+
+    // Handle midnight wraparound
+    if (targetTime.hour < currentTime.hour) {
+      targetTime.day += 1;
+    }
+
+    set({
+      time: {
+        ...state.time,
+        isWaiting: true,
+        waitTargetTime: targetTime,
+      },
+    });
+
+    console.log(`Waiting until ${formatTime(targetTime)}...`);
+  },
+
+  cancelWait: () => {
+    set({
+      time: {
+        ...get().time,
+        isWaiting: false,
+        waitTargetTime: null,
+      },
+    });
+  },
+
+  sleep: () => {
+    const state = get();
+
+    // Can only sleep in your cell during lockdown or late evening
+    if (state.currentRoom.id !== 'cell_c14') {
+      get().showText("You can only sleep in your own cell.");
+      return;
+    }
+
+    const currentHour = state.time.currentTime.hour;
+    if (currentHour < 20 && currentHour >= 6) {
+      get().showText("It's too early to sleep. Lights out is at 22:00.");
+      return;
+    }
+
+    // Sleep advances time to 06:00 next day
+    const currentDay = state.time.currentTime.day;
+    const nextDay = currentHour >= 22 || currentHour < 6 ? currentDay + 1 : currentDay;
+
+    const newTime = {
+      day: nextDay,
+      hour: 6,
+      minute: 0,
+      totalMinutes: state.time.currentTime.totalMinutes + (24 * 60), // Add a full day
+    };
+
+    // Clear any notifications
+    if (state.time.notificationTimeout) {
+      clearTimeout(state.time.notificationTimeout);
+    }
+
+    set({
+      time: {
+        ...state.time,
+        currentTime: newTime,
+        currentPeriod: 'early_morning',
+        periodNotification: 'WAKE-UP CALL',
+        notificationTimeout: setTimeout(() => {
+          set({
+            time: {
+              ...get().time,
+              periodNotification: null,
+              notificationTimeout: null,
+            },
+          });
+        }, 3000) as unknown as number,
+      },
+    });
+
+    // Update all NPCs for the new period
+    const updatedNPCs: Record<string, NPCData> = { ...state.npcs };
+    Object.keys(updatedNPCs).forEach((npcId) => {
+      const npc = updatedNPCs[npcId];
+      const scheduleChanges = updateNPCSchedule(npc, 'early_morning', state.currentRoom.id);
+      if (Object.keys(scheduleChanges).length > 0) {
+        updatedNPCs[npcId] = { ...npc, ...scheduleChanges };
+      }
+    });
+
+    set({ npcs: updatedNPCs });
+
+    console.log(`Slept until Day ${nextDay}, 06:00`);
   },
 }));
 

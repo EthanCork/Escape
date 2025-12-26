@@ -1,4 +1,4 @@
-import type { NPCData, Position, Direction, Room } from './types';
+import type { NPCData, Position, Direction, Room, TimePeriodId, NPCScheduleEntry } from './types';
 import { TILE_SIZE, isTileWalkable } from './constants';
 
 // ========================================
@@ -23,10 +23,23 @@ export function updatePatrol(
 
   // If not moving, we're waiting at a waypoint
   if (!npc.isMoving) {
-    // Check if we should start moving to next waypoint
-    // For simplicity, we'll just move immediately (no wait logic yet)
+    // Initialize wait timer if not set
+    const waitTimer = npc.waitTimer ?? 0;
+    const waitDuration = currentPoint.wait ?? 0;
+
+    // Check if we've waited long enough
+    if (waitTimer < waitDuration) {
+      // Still waiting, increment timer
+      return {
+        waitTimer: waitTimer + deltaTime,
+      };
+    }
+
+    // Done waiting, start moving to next waypoint
     const nextIndex = (npc.currentPatrolIndex + 1) % npc.patrolRoute.length;
     const nextPoint = npc.patrolRoute[nextIndex];
+
+    console.log(`[${npc.name}] Starting movement from (${npc.position.x}, ${npc.position.y}) to (${nextPoint.col}, ${nextPoint.row})`);
 
     // Start moving to next point
     return {
@@ -37,6 +50,7 @@ export function updatePatrol(
         y: nextPoint.row * TILE_SIZE,
       },
       currentPatrolIndex: nextIndex,
+      waitTimer: 0, // Reset wait timer
       direction: getDirectionToTarget(npc.position, {
         x: nextPoint.col,
         y: nextPoint.row,
@@ -61,6 +75,7 @@ export function updatePatrol(
 
     if (distToTarget <= distance) {
       // Reached target
+      console.log(`[${npc.name}] Reached target (${npc.targetPosition.x}, ${npc.targetPosition.y})`);
       return {
         position: npc.targetPosition,
         pixelPosition: targetPixel,
@@ -72,11 +87,23 @@ export function updatePatrol(
     } else {
       // Move toward target
       const ratio = distance / distToTarget;
+      const newPixelPos = {
+        x: npc.pixelPosition.x + dx * ratio,
+        y: npc.pixelPosition.y + dy * ratio,
+      };
+
+      // Update grid position to match current pixel position (for interaction detection)
+      // Calculate which tile the CENTER of the NPC is on
+      const centerX = newPixelPos.x + TILE_SIZE / 2;
+      const centerY = newPixelPos.y + TILE_SIZE / 2;
+      const newGridPos = {
+        x: Math.floor(centerX / TILE_SIZE),
+        y: Math.floor(centerY / TILE_SIZE),
+      };
+
       return {
-        pixelPosition: {
-          x: npc.pixelPosition.x + dx * ratio,
-          y: npc.pixelPosition.y + dy * ratio,
-        },
+        pixelPosition: newPixelPos,
+        position: newGridPos,
       };
     }
   }
@@ -271,4 +298,84 @@ export function canTalkToNPC(npc: NPCData, playerPos: Position): boolean {
   if (npc.currentBehavior === 'chase') return false;
 
   return isNPCAdjacentToPlayer(npc, playerPos);
+}
+
+// ========================================
+// SCHEDULE SYSTEM
+// ========================================
+
+/**
+ * Update NPC based on current time period
+ * Returns changes to apply to NPC
+ *
+ * @param npc - The NPC to update
+ * @param currentPeriod - The current time period
+ * @param playerCurrentRoom - The room the player is currently in (to avoid teleporting visible NPCs)
+ */
+export function updateNPCSchedule(
+  npc: NPCData,
+  currentPeriod: TimePeriodId,
+  playerCurrentRoom?: string
+): Partial<NPCData> {
+  const scheduleEntry = npc.schedule[currentPeriod];
+
+  if (!scheduleEntry) {
+    return {}; // No schedule entry for this period
+  }
+
+  const changes: Partial<NPCData> = {};
+
+  // Check if behavior should change
+  if (scheduleEntry.behavior !== npc.currentBehavior) {
+    changes.currentBehavior = scheduleEntry.behavior;
+  }
+
+  // Check if room should change
+  if (scheduleEntry.room && scheduleEntry.room !== npc.currentRoom) {
+    // Only teleport NPCs that aren't in the player's current room
+    // This prevents jarring teleports of visible NPCs
+    if (npc.currentRoom !== playerCurrentRoom && scheduleEntry.room !== playerCurrentRoom) {
+      // NPC is off-screen, safe to teleport
+      changes.currentRoom = scheduleEntry.room;
+
+      const newPosition = getSpawnPositionForRoom(scheduleEntry.room);
+      changes.position = newPosition;
+      changes.pixelPosition = {
+        x: newPosition.x * TILE_SIZE,
+        y: newPosition.y * TILE_SIZE,
+      };
+      changes.targetPixelPosition = {
+        x: newPosition.x * TILE_SIZE,
+        y: newPosition.y * TILE_SIZE,
+      };
+      changes.isMoving = false;
+      changes.targetPosition = null;
+    } else {
+      // NPC is visible to player - they need to walk to the exit
+      // For now, we'll just mark them as needing to transition
+      // In a full implementation, you'd pathfind them to the exit
+      console.log(`[${npc.name}] Should transition from ${npc.currentRoom} to ${scheduleEntry.room} (visible to player)`);
+      // TODO: Implement visible NPC room transitions
+    }
+  }
+
+  return changes;
+}
+
+/**
+ * Get spawn position for a room
+ * This should ideally use room data, but for now we'll use simple positions
+ */
+function getSpawnPositionForRoom(roomId: string): Position {
+  // Default positions for each room
+  const positions: Record<string, Position> = {
+    'cell_c12': { x: 2, y: 3 },
+    'cell_c14': { x: 4, y: 4 },
+    'corridor_b': { x: 10, y: 4 },
+    'guard_station_b': { x: 5, y: 5 },
+    'cafeteria': { x: 7, y: 5 },
+    'yard': { x: 10, y: 8 },
+  };
+
+  return positions[roomId] || { x: 5, y: 5 };
 }

@@ -227,6 +227,7 @@ export interface NPCData {
   targetPosition: Position | null;
   pixelPosition: Position; // For smooth movement
   targetPixelPosition: Position;
+  waitTimer?: number; // Current wait time at patrol point (seconds)
 
   // Behavior
   schedule: Record<string, NPCScheduleEntry>; // time range -> behavior
@@ -294,6 +295,63 @@ export interface DialogueState {
   selectedResponse: number;
 }
 
+// ========================================
+// TIME SYSTEM - Phase 6
+// ========================================
+
+export type TimePeriodId =
+  | 'early_morning'
+  | 'breakfast'
+  | 'morning_work'
+  | 'lunch'
+  | 'afternoon_work'
+  | 'recreation'
+  | 'dinner'
+  | 'evening_free'
+  | 'lockdown';
+
+export interface TimePeriod {
+  id: TimePeriodId;
+  name: string;
+  startHour: number;
+  startMinute: number;
+  endHour: number;
+  endMinute: number;
+}
+
+export interface GameTime {
+  day: number;
+  hour: number;
+  minute: number;
+  totalMinutes: number; // Minutes since game start
+}
+
+export interface TimeState {
+  currentTime: GameTime;
+  currentPeriod: TimePeriodId;
+  isPaused: boolean;
+  timeScale: number; // 1 = normal (1 real second = 1 game minute), higher = faster
+  isWaiting: boolean;
+  waitTargetTime: GameTime | null;
+  periodNotification: string | null; // Shows period transition notification
+  notificationTimeout: number | null; // Timeout ID for clearing notification
+}
+
+export type AreaRestrictionLevel = 'allowed' | 'suspicious' | 'restricted' | 'forbidden';
+
+export interface AreaRestriction {
+  roomId: string;
+  period: TimePeriodId | 'all';
+  level: AreaRestrictionLevel;
+}
+
+export interface TimeLockedDoor {
+  exitId: string; // Exit ID from room
+  openPeriods: TimePeriodId[];
+  defaultState: ExitState;
+  overrideKey?: string; // Key item that can open regardless of time
+}
+
 export interface GameState {
   player: PlayerState;
   currentRoom: Room;
@@ -307,4 +365,5 @@ export interface GameState {
   alertState: AlertState;
   dialogue: DialogueState;
   playerKnowledge: Set<string>; // Knowledge gained from dialogue
+  time: TimeState;
 }
